@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0E2A20" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>NEOTRACE · Neofood Sauce Division</title>
+    <style>
+      /* Dua muka huruf: Archivo untuk teks manusia, mono untuk kode lot/HU/angka.
+         Operator membaca kode label huruf per huruf — mono mencegah 0/O tertukar. */
+      :root {
+        --font-ui: Archivo, "Segoe UI", system-ui, sans-serif;
+        --font-code: "JetBrains Mono", "Roboto Mono", ui-monospace, "Cascadia Mono", monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #EEF3F0; color: #0E2A20; font-family: var(--font-ui); -webkit-tap-highlight-color: transparent; }
+      button, input, textarea, select { font-family: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

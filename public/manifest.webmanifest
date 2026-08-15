@@ -1,0 +1,12 @@
+{
+  "name": "NEOTRACE — Neofood Sauce Division",
+  "short_name": "NEOTRACE",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF3F0",
+  "theme_color": "#0E2A20",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
