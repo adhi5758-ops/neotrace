@@ -158,6 +158,14 @@ create trigger t_hu_location_guard
 -- =====================================================================
 -- BAGIAN 3 — REKOMENDASI & TUGAS PUT-AWAY
 -- =====================================================================
+
+-- v1 chk_qty_nonzero menolak qty=0 di stock_movements. Put-away murni
+-- (pindah lokasi, jumlah tidak berubah) SEHARUSNYA qty=0 — trg_apply_movement_to_hu
+-- dari v1 menerapkan qty sebagai delta ke qty_remaining, jadi qty bukan-nol di sini
+-- akan menggandakan qty_remaining. Longgarkan constraint-nya, bukan qty-nya.
+alter table stock_movements drop constraint chk_qty_nonzero;
+alter table stock_movements add constraint chk_qty_nonzero check (qty <> 0 or type = 'TRANSFER');
+
 create or replace function suggest_putaway(p_item_id uuid, p_qty numeric)
 returns table (location_id uuid, location_code text, score numeric, reason text)
 language plpgsql stable as $$

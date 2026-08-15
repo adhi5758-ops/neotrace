@@ -34,7 +34,7 @@ export default function Staging() {
       ]);
       setBoard(b);
       setAssignments(a);
-      setStagingLocs(locs.filter((l) => l.type === 'STAGING'));
+      setStagingLocs(locs.filter((l) => l.is_staging));
       setBatches(bt);
     } catch (e) {
       setMsg({ tone: 'bad', text: parseDbError(e).message });
