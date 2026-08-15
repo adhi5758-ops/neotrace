@@ -121,24 +121,25 @@ export async function cancelPickList(pickListId: string) {
   if (error) throw parseDbError(error);
 }
 
-export interface ConfirmPickInput {
-  lineId: string;
-  huId: string;
-  qty: number;
-  overrideReason?: string;
-}
-
 /**
  * Konfirmasi satu baris. qty kurang dari permintaan → baris jadi SHORT,
  * bukan gagal: kekurangan bahan adalah kenyataan gudang yang harus tercatat.
+ *
+ * Argumen posisional mengikuti pemanggilan di WavePickSheet.tsx (Fase 3).
  */
-export async function confirmPick({ lineId, huId, qty, overrideReason }: ConfirmPickInput) {
+export async function confirmPick(
+  lineId: string,
+  huId: string,
+  qty: number,
+  overrideReason?: string,
+  scanEventId?: number
+) {
   const { error } = await supabase.rpc('confirm_pick', {
     p_line_id: lineId,
     p_hu_id: huId,
     p_qty: qty,
     p_override_reason: overrideReason?.trim() || null,
-    p_scan_event_id: null,
+    p_scan_event_id: scanEventId ?? null,
   });
   if (error) throw parseDbError(error);
 }

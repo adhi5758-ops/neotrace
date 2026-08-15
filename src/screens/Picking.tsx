@@ -16,6 +16,8 @@ import {
   listPickLists, pickLines, confirmPick, startPicking,
   type PickList, type PickLine,
 } from '../lib/picking';
+import { useLabourSession } from '../lib/labour';
+import SessionConflict from '../components/SessionConflict';
 import { C, MONO, s, pill } from '../ui';
 
 const toneOf = (st: string) =>
@@ -88,6 +90,9 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void startPicking(list.id).catch(() => {}); }, [list.id]);
 
+  // sesi kerja mengikuti layar — tidak ada tombol clock in/out untuk operator
+  const { conflict, resolveConflict, finish } = useLabourSession('PICK', list.id, list.doc_no);
+
   const done = lines.filter((l) => l.status === 'COMPLETED').length;
   const short = lines.filter((l) => l.status === 'SHORT').length;
   const locCode = (id: string | null) => locations.find((l) => l.id === id)?.code ?? '—';
@@ -105,12 +110,16 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
 
   return (
     <div style={s.page}>
-      <button style={{ ...s.btnGhost, marginBottom: 14 }} onClick={onBack}>‹ Daftar pick list</button>
+      <button style={{ ...s.btnGhost, marginBottom: 14 }}
+              onClick={() => { void finish(undefined, done + short); onBack(); }}>
+        ‹ Daftar pick list
+      </button>
       <h1 style={s.h1}>{list.doc_no}</h1>
       <p style={s.sub}>
         {list.production_batches?.batch_no ?? '—'} · {done}/{lines.length} selesai
         {short > 0 ? ` · ${short} kurang` : ''}
       </p>
+      {conflict && <SessionConflict session={conflict} onResolve={resolveConflict} />}
       {err && <div style={s.err}>{err}</div>}
       {loading && <div style={s.empty}>Memuat baris…</div>}
 
@@ -165,12 +174,12 @@ function PickLineFlow({ line, locationCode, onBack, onDone }: {
     setBusy(true);
     setErr(null);
     try {
-      await confirmPick({
-        lineId: line.id,
-        huId: scan.hu_id,
-        qty: qtyNum,
-        overrideReason: (needsReason || isShort) ? reason.trim() : undefined,
-      });
+      await confirmPick(
+        line.id,
+        scan.hu_id,
+        qtyNum,
+        (needsReason || isShort) ? reason.trim() : undefined
+      );
       onDone();
     } catch (e) {
       setErr((e as { message?: string }).message ?? parseDbError(e).message);

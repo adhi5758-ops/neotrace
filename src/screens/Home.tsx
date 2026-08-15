@@ -9,6 +9,7 @@ const TILES = [
   { to: '/qc', title: 'QC hold', hint: 'Sampel, hasil uji, release lot' },
   { to: '/produksi', title: 'Produksi', hint: 'Batch, pick list, saran FEFO, CCP, HPP' },
   { to: '/telusur', title: 'Telusur', hint: 'Dua arah: lot → produk, batch → bahan' },
+  { to: '/analitik', title: 'Analitik', hint: 'Perputaran, KPI, peramalan, sinkronisasi ERP' },
 ];
 
 export default function Home({ unread, queued }: Props) {

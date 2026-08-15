@@ -97,4 +97,50 @@ assert.equal(qtyNeeded(10, 500, 100, 0), 50, 'skala 5x tanpa scrap');
 assert.equal(qtyNeeded(10, 500, 100, 2), 51, 'scrap 2% ikut terhitung');
 assert.equal(qtyNeeded(2.5, 100, 100, 0), 2.5, 'skala 1:1');
 
+/* ================= FASE 3 ================= */
+
+const p3 = readFileSync(new URL('../src/lib/labour.ts', import.meta.url), 'utf8');
+assert.ok(p3.includes('export function isStaleSession'), 'isStaleSession hilang dari labour.ts');
+assert.ok(p3.includes('STALE_SESSION_HOURS = 8'), 'ambang sesi basi berubah — perbarui cek ini');
+
+/* --- sesi menggantung: satu shift penuh dianggap basi --- */
+const HOUR = 3_600_000;
+const sessionAgeHours = (startedAt, now) => (now - new Date(startedAt).getTime()) / HOUR;
+const isStaleSession = (startedAt, now) => sessionAgeHours(startedAt, now) >= 8;
+
+const NOW = Date.parse('2027-01-20T15:00:00Z');
+assert.equal(isStaleSession(new Date(NOW - 2 * HOUR).toISOString(), NOW), false, 'sesi 2 jam masih wajar');
+assert.equal(isStaleSession(new Date(NOW - 9 * HOUR).toISOString(), NOW), true, 'sesi 9 jam menggantung');
+assert.equal(isStaleSession(new Date(NOW - 8 * HOUR).toISOString(), NOW), true, 'tepat 8 jam sudah basi');
+
+/* --- kode tote per batch dalam satu gelombang (cermin generate_wave) --- */
+const toteFor = (index) => `TOTE-${String(index + 1).padStart(2, '0')}`;
+assert.equal(toteFor(0), 'TOTE-01');
+assert.equal(toteFor(9), 'TOTE-10');
+// tote wajib unik per batch — bahan tertukar di troli adalah RAID R33
+const totes = [0, 1, 2, 3].map(toteFor);
+assert.equal(new Set(totes).size, totes.length, 'kode tote harus unik dalam satu gelombang');
+
+/* ================= FASE 4 ================= */
+
+const p4 = readFileSync(new URL('../src/lib/api-phase4.ts', import.meta.url), 'utf8');
+assert.ok(p4.includes('MIN_PERIODS_FOR_REORDER = 12'), 'ambang periode reorder berubah — perbarui cek ini');
+// idempotency_key tidak boleh disentuh saat antre ulang, itu penjaga anti-dokumen-ganda
+assert.ok(!/update\([^)]*idempotency_key/s.test(p4), 'requeue tidak boleh mengubah idempotency_key');
+
+/* --- R44: saran reorder disembunyikan bila data historis belum cukup --- */
+const showReorder = (periods) => periods >= 12;
+assert.equal(showReorder(3), false, 'data 3 periode belum boleh jadi angka perencanaan');
+assert.equal(showReorder(11), false);
+assert.equal(showReorder(12), true, '12 periode penuh baru boleh dipakai');
+
+/* --- titik pesan & kebutuhan reorder (cermin v_reorder_suggestions) --- */
+const reorderLevel = (forecastQty, leadDays, safety) =>
+  +((forecastQty / 30) * leadDays + (safety ?? 0)).toFixed(2);
+assert.equal(reorderLevel(300, 7, 20), 90, 'ramalan 300/bulan, lead 7 hari, safety 20');
+assert.equal(reorderLevel(0, 7, 15), 15, 'tanpa ramalan, titik pesan = safety stock');
+const needsReorder = (onHand, level) => onHand <= level;
+assert.equal(needsReorder(90, 90), true, 'tepat di titik pesan harus memicu');
+assert.equal(needsReorder(91, 90), false);
+
 console.log('OK — semua cek lulus');

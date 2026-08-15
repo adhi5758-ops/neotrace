@@ -22,6 +22,7 @@ export default function Warehouse() {
     { to: '/terima', title: 'Terima bahan', hint: 'GRN + cetak label QR per kemasan', badge: null },
     { to: '/putaway', title: 'Put-away', hint: 'Letakkan kemasan ke rak, zonasi alergen dikunci', badge: putaway },
     { to: '/picking', title: 'Pick list', hint: 'Ambil bahan urut jalur gudang, konfirmasi scan', badge: picks },
+    { to: '/gelombang', title: 'Gelombang', hint: 'Wave picking: banyak batch, satu jalan, tote per batch', badge: null },
     { to: '/staging', title: 'Staging', hint: 'Satu area satu batch, papan okupansi lini', badge: null },
     { to: '/konsol', title: 'Konsol gudang', hint: 'Peta rak, dock-to-stock, kinerja picking', badge: null },
   ];
@@ -29,7 +30,7 @@ export default function Warehouse() {
   return (
     <div style={s.page}>
       <h1 style={s.h1}>Gudang</h1>
-      <p style={s.sub}>Fase 2 · put-away terarah, zonasi alergen, picking, staging</p>
+      <p style={s.sub}>Put-away terarah · zonasi alergen · picking · gelombang · staging</p>
 
       {tiles.map((t) => (
         <Link key={t.to} to={t.to} style={{ textDecoration: 'none' }}>

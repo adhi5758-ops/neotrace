@@ -28,6 +28,8 @@ import Putaway from './screens/Putaway';
 import Picking from './screens/Picking';
 import Staging from './screens/Staging';
 import WarehouseConsole from './screens/WarehouseConsole';
+import Waves from './screens/Waves';
+import Analytics from './screens/Analytics';
 
 const TABS = [
   { to: '/', label: 'Beranda', end: true },
@@ -89,8 +91,10 @@ export default function App() {
         <Route path="/terima" element={<Receive />} />
         <Route path="/putaway" element={<Putaway />} />
         <Route path="/picking" element={<Picking />} />
+        <Route path="/gelombang" element={<Waves />} />
         <Route path="/staging" element={<Staging />} />
         <Route path="/konsol" element={<WarehouseConsole />} />
+        <Route path="/analitik" element={<Analytics />} />
         <Route path="/qc" element={<Qc role={profile?.role} />} />
         <Route path="/produksi" element={<Production />} />
         <Route path="/telusur" element={<Trace />} />

@@ -16,6 +16,8 @@ import {
   listPutawayTasks, completePutaway, suggestPutaway, transferHu, extractLocationCode, itemIdForLot,
   ZONE_MESSAGES, type PutawayTask, type PutawaySuggestion, type ZoneErrorCode,
 } from '../lib/putaway';
+import { useLabourSession } from '../lib/labour';
+import SessionConflict from '../components/SessionConflict';
 import { C, MONO, s, pill } from '../ui';
 
 type Mode = { kind: 'task'; task: PutawayTask } | { kind: 'free'; scan: ScanResult };
@@ -27,6 +29,10 @@ export default function Putaway() {
   const [freeScan, setFreeScan] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [placed, setPlaced] = useState(0);
+
+  // sesi kerja seumur layar; jumlah kemasan yang diletakkan jadi lines_handled
+  const { conflict, resolveConflict } = useLabourSession('PUTAWAY');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,7 +56,7 @@ export default function Putaway() {
         mode={mode}
         locations={locations}
         onBack={() => setMode(null)}
-        onDone={() => { setMode(null); void refresh(); }}
+        onDone={() => { setMode(null); setPlaced((n) => n + 1); void refresh(); }}
       />
     );
   }
@@ -58,7 +64,11 @@ export default function Putaway() {
   return (
     <div style={s.page}>
       <h1 style={s.h1}>Put-away</h1>
-      <p style={s.sub}>{tasks.length} kemasan menunggu diletakkan</p>
+      <p style={s.sub}>
+        {tasks.length} kemasan menunggu diletakkan
+        {placed > 0 ? ` · ${placed} selesai sesi ini` : ''}
+      </p>
+      {conflict && <SessionConflict session={conflict} onResolve={resolveConflict} />}
       {err && <div style={s.err}>{err}</div>}
 
       <button style={{ ...s.btnGhost, width: '100%' }} onClick={() => setFreeScan(true)}>
