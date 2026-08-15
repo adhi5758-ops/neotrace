@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 15 Aug 2026 · **Status:** Fase 1 + Fase 2 live — backend on a real Supabase project, frontend deployed to Vercel, smoke-tested end-to-end (receive → QC release → auto-issued put-away → completed put-away, allergen zoning trigger active)
+**Updated:** 15 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project. All four SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel. Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -12,7 +12,7 @@ Read this top to bottom before touching code. Everything a new session needs is 
 
 | | |
 |---|---|
-| Supabase project | `neotrace-staging` — ref `wwghhyeidmxcwjfyhtgn`, ap-southeast-1. v1 + Fase 1 delta + Fase 2 delta all applied, `pg_cron` scheduled daily 00:05 WIB. **This is a staging project** — create a separate one before going to real production data. |
+| Supabase project | `neotrace-staging` — ref `wwghhyeidmxcwjfyhtgn`, ap-southeast-1. v1 + all four phase deltas applied. Three cron jobs scheduled: `neotrace-daily` (00:05 WIB, expiry/halal alerts), `neotrace-abc` (monthly, ABC classification), `neotrace-reclaim` (every 10 min, unstick claimed outbox rows). `neotrace-forecast` deliberately **not** scheduled yet — no real consumption history exists (see gap 1). **This is a staging project, and multiple sessions/people may be testing against it concurrently** — don't assume data you didn't create yourself is spurious, check `created_at` before treating something as a bug. Create a separate project before going to real production data. |
 | GitHub | [adhi5758-ops/neotrace](https://github.com/adhi5758-ops/neotrace), branch `main`. **Currently public** — contains no real Neofood business data (schema + fictional placeholder seed only), but exposes app architecture and RLS/trigger logic. Consider making it private. |
 | Vercel | [neotrace-web.vercel.app](https://neotrace-web.vercel.app) — project `neotrace-web`, auto-deploys on push to `main` via the GitHub integration (connected directly in the Vercel dashboard, not through the Claude↔Vercel MCP connector — that connector can manage projects but its deployment/list APIs return 403/404 unpredictably; don't waste time on it, use `git push`). Deployment protection is off (public). |
 | Admin login | `adhi5758@gmail.com`, `profiles.role = 'ADMIN'` |
@@ -28,14 +28,17 @@ A React PWA for lot traceability and warehouse execution on the sauce production
 Phone-first for operators (receive, scan, put-away, pick, consume, CCP), same pages on desktop
 for QA, warehouse supervisors, and finance (QC release, warehouse map, trace, cost).
 
-| | Fase 1 | Fase 2 |
-|---|---|---|
-| Goal | Actual HPP per batch · two-way traceability · consignment reconciliation | Eliminate misplacement · faster material picking · prevent cross-contamination by system |
-| Scope | v1 schema + QR scan + FEFO + QC hold + expiry alerts | Directed put-away · allergen zoning (hard block) · pick list from formula · staging |
-| Go-live | 02 Oct 2026 | 04 Dec 2026 (starts 12 Oct, 8 weeks) |
+| | Fase 1 | Fase 2 | Fase 3 | Fase 4 |
+|---|---|---|---|---|
+| Goal | Actual HPP per batch · two-way traceability · consignment reconciliation | Eliminate misplacement · faster picking · prevent cross-contamination by system | Warehouse productivity via wave picking; give management usable numbers | Stop double entry between NEOTRACE and ERP; base purchasing on real consumption |
+| Scope | v1 schema + QR scan + FEFO + QC hold + expiry alerts | Directed put-away · allergen zoning (hard block) · pick list from formula · staging | Wave/zone/cluster picking · labour sessions & KPI · ABC · turnover · slow moving · ops scorecard | Outbox/inbox · ID mapping · idempotency & retry · sync health · consumption history · seasonality · forecasting · reorder points |
+| Go-live | 02 Oct 2026 | 04 Dec 2026 | 19 Feb 2027 (starts 11 Jan, 6 weeks) | 30 Apr 2027 (starts 08 Mar, 8 weeks) |
 
-Out of scope (Fase 3+): wave & cluster picking, cross-docking, packing & SSCC, RFID,
-dual UoM / catch weight, ERP integration, labour KPI, forecasting.
+Still out of scope after Fase 4: cross-docking, packing & SSCC, RFID, dual UoM / catch weight.
+
+> **Strategic decision owed before Fase 3 ends (RAID R41).** If Neofood adopts a full ERP,
+> Fase 4 may not need building at all — it would rebuild functions the ERP already has.
+> The Fase 4 code below exists, but that decision belongs to PO Neofood, not to the build team.
 
 ---
 
@@ -45,17 +48,22 @@ All source files now live in this folder alongside the app:
 
 | File | What it is | State |
 |---|---|---|
-| `neotrace_schema.sql` | v1 core schema — tables, enums, views, `resolve_qr`, `suggest_lots_fefo` | **not yet run anywhere** |
-| `neotrace_phase1_delta.sql` | QC hold, FEFO enforcement, expiry alerts, RLS | **not yet run** |
-| `neotrace_phase2_delta.sql` | Put-away, allergen zoning, pick lists, staging, console views | **not yet run** |
+| `neotrace_schema.sql` | v1 core schema — tables, enums, views, `resolve_qr`, `suggest_lots_fefo` | applied to staging |
+| `neotrace_phase1_delta.sql` | QC hold, FEFO enforcement, expiry alerts, RLS | applied to staging |
+| `neotrace_phase2_delta.sql` | Put-away, allergen zoning, pick lists, staging, console views | applied to staging (incl. the §6a constraint fix) |
+| `neotrace_phase3_delta.sql` | Wave picking, labour sessions & KPI views, ABC, turnover, slow moving, utilisation, ops scorecard | applied to staging (incl. the §6b syntax fix) |
+| `neotrace_phase4_delta.sql` | ERP outbox/inbox, entity mappings, payload builders, claim/ack/fail, sync health, consumption history, seasonality, forecasting, reorder points | applied to staging |
 | `neotrace_schema_v2_wms.sql` | Older full-WMS draft — **do not run**, phase2 delta supersedes it (its own header says so) |
 | `NEOTRACE_Fase1_Rencana_Kerja.xlsx` | 6-week plan, T01–T44 | reference |
 | `NEOTRACE_Fase2_Rencana_Kerja.xlsx` | 8-week plan, P01–P43, RACI, RAID, exit criteria | reference |
+| `NEOTRACE_Fase3_Fase4_Rencana_Kerja.xlsx` | Fase 3 W01–W23 (6 wk) + Fase 4 E01–E26 (8 wk), RACI, RAID, exit criteria | reference |
 | `neotrace_erd.svg` | ERD, Fase 1 vs Fase 2 marked | reference |
 
-Four modules were supplied as finished code and are used **verbatim** (one edit total, §5):
-`src/lib/api.ts`, `src/lib/offlineQueue.ts`, `src/components/QrScanner.tsx`,
-`src/components/BatchConsumePanel.tsx`.
+Seven modules were supplied as finished code and are used **verbatim** except where §5 says otherwise:
+`src/lib/api.ts`, `src/lib/offlineQueue.ts`, `src/lib/api-phase3.ts`,
+`src/components/QrScanner.tsx`, `src/components/BatchConsumePanel.tsx`,
+`src/components/WavePickSheet.tsx`, and the Deno edge worker
+`supabase/functions/erp-sync/index.ts`.
 
 ---
 
@@ -78,9 +86,14 @@ neotrace-web/
       labels.ts               QR labels — handling units + rack locations (P12)
       putaway.ts              FASE 2 — put-away, zoning, transfer, location-code parsing (P13)
       picking.ts              FASE 2 — pick lists, confirm pick, staging (P23)
+      api-phase3.ts           FASE 3 — PROVIDED: waves, labour, ABC/turnover/scorecard reads
+      labour.ts               FASE 3 — useLabourSession hook, stale-session rules, supervisor board
+      api-phase4.ts           FASE 4 — sync health & outbox intervention, forecasts, reorder points
     components/
       QrScanner.tsx           PROVIDED, untouched
       BatchConsumePanel.tsx   PROVIDED, untouched
+      WavePickSheet.tsx       FASE 3 — PROVIDED, one import line changed (§5)
+      SessionConflict.tsx     FASE 3 — hanging-session banner (W10)
     screens/
       Login.tsx               email/password via supabase.auth
       Home.tsx                tiles + outbox/unread banners
@@ -95,11 +108,16 @@ neotrace-web/
       Production.tsx          batch → pick list → requirements → consume → CCP → close + HPP
       Trace.tsx               forward / backward / consignment, all typed columns
       Notifications.tsx       realtime alerts, mark read
+      Waves.tsx               FASE 3 — form waves, assign picker, open wave sheet
+      Analytics.tsx           FASE 3+4 — scorecard · turnover · labour · forecast · sync (5 tabs)
+  supabase/functions/erp-sync/
+      index.ts                FASE 4 — PROVIDED Deno worker; outside src, not in the Vite build
 ```
 
 Navigation: bottom tabs are **Beranda · Gudang · QC · Produksi · Telusur**.
-Receive/put-away/picking/staging/console all sit under Gudang — five warehouse screens
-would not fit in a phone tab bar.
+Receive/put-away/picking/waves/staging/console all sit under Gudang — six warehouse screens
+would not fit in a phone tab bar. Analitik is reached from Beranda, not the tab bar: its readers
+are management and planners, who are on desktop and visit it daily at most.
 
 Design language, unchanged from the provided components: square corners, `borderTop` accent
 rules (never left side-tabs), monospace for every lot/HU/rack code, palette in `src/ui.ts`
@@ -138,9 +156,36 @@ T01–T07 (Supabase provisioning, schema runs, RLS testing, master import, CCP d
 
 P01–P08, P10, P11, P19, P24, P33–P43 are data, physical, process, training, or ops tasks — not code.
 
+**Fase 3**
+
+| Task | Where | State |
+|---|---|---|
+| W05 generate_wave for 3–5 batches | DB function | in SQL, not run |
+| W06 desktop console: form wave, pick batches, assign | `Waves.tsx` `FormWave` + `AssignPicker` | done |
+| W07 phone wave sheet, one stop per rack, split to totes | `components/WavePickSheet.tsx` (PROVIDED) hosted by `Waves.tsx` | done |
+| W09 clock in/out folded into pick & put-away | `lib/labour.ts` `useLabourSession`, wired in `Picking.tsx` + `Putaway.tsx` | done |
+| W10 hanging sessions & one open session per person | `useLabourSession` adopt-or-conflict + `SessionConflict.tsx` | done |
+| W11 supervisor board: who is doing what now | `Analytics.tsx` → Tenaga kerja tab | done |
+| W13 turnover, days on hand, slow moving | `Analytics.tsx` → Perputaran | done |
+| W14 warehouse utilisation & ops scorecard | `Analytics.tsx` → Scorecard | done |
+| W15 labour KPI & wave performance | `Analytics.tsx` → Tenaga kerja | done |
+
+**Fase 4**
+
+| Task | Where | State |
+|---|---|---|
+| E06 sync worker with claim/ack/retry | `supabase/functions/erp-sync/index.ts` (PROVIDED) | **not deployed** |
+| E10 sync health monitor in admin console | `Analytics.tsx` → Sinkronisasi | done |
+| E15 run forecast & backfill actuals | `Analytics.tsx` → Peramalan buttons | done |
+| E16 forecast & reorder suggestion screen | `Analytics.tsx` → Peramalan | done |
+| E20 DEAD message manual intervention | `api-phase4.ts` `requeueMessage` / `skipMessage` + Sinkronisasi tab | done |
+
+E01–E05, E08, E09, E11, E12, E14, E17–E19, E21–E26 are contract, integration, data, or ops
+tasks needing the ERP team — not frontend code.
+
 ---
 
-## 5. The only change made to provided code
+## 5. Changes made to provided code
 
 `src/lib/api.ts`, top of file. The original called `createClient(import.meta.env.VITE_SUPABASE_URL, ...)`
 directly, which throws at import time when `.env` is absent → white screen. Now:
@@ -156,8 +201,22 @@ export const supabase: SupabaseClient = createClient(
 );
 ```
 
-`App.tsx` reads `isConfigured` and renders a setup screen instead. Everything else in the four
-provided files is byte-identical to the originals.
+`App.tsx` reads `isConfigured` and renders a setup screen instead.
+
+**Change 2 — `src/components/WavePickSheet.tsx`, one import line.** The provided file imported
+`confirmPick` from `../lib/api-phase2`, a module name this codebase never used (Fase 2 lives in
+`lib/putaway.ts` + `lib/picking.ts`). Changed to `import { confirmPick } from '../lib/picking'`.
+Nothing else in that file was touched.
+
+To make that work, `picking.ts`'s `confirmPick` was switched from an object argument to
+**positional** `confirmPick(lineId, huId, qty, overrideReason?, scanEventId?)`, matching how the
+provided component calls it. `Picking.tsx` was updated to the same signature — there is now one
+`confirmPick`, not two.
+
+`api-phase3.ts` and `supabase/functions/erp-sync/index.ts` are byte-identical to what was supplied.
+The design hook flags three cosmetic issues inside `WavePickSheet.tsx` (two left-border accents and
+a `width` transition on the 4px progress bar) — left alone deliberately, they are the author's
+choices in supplied code and cost nothing at that size.
 
 ---
 
@@ -206,6 +265,19 @@ the two things that changed.
 
 ---
 
+## 6b. Fase 3 SQL syntax error found while applying the delta
+
+`v_labour_kpi` and `v_putaway_productivity` both had a bare (unquoted) `day` column alias
+immediately after a function call — e.g. `date_trunc('day', ls.started_at at time zone
+'Asia/Jakarta') day`. Postgres rejected it with `syntax error at or near "day"`. The identical
+pattern with `week` (already live in Fase 1/2's `v_fefo_compliance` and `v_putaway_compliance`)
+works fine, so this is specific to `day`, not bare aliases in general — not fully root-caused,
+just worked around by adding an explicit `AS day`. Both the live DB and
+`neotrace_phase3_delta.sql` are fixed. If you hand-write a new view with a bare date-part alias,
+prefer `AS <name>` on principle rather than relying on it being safe.
+
+---
+
 ## 7. Verification done
 
 - `npx tsc -b` — clean
@@ -229,10 +301,57 @@ assignment (`assign_staging`) — only put-away was walked end-to-end. Given put
 real bugs, treat picking/staging as similarly untested until someone actually clicks through them
 against live data.
 
+### Fase 3 + 4 verification (15 Aug 2026)
+
+- `npx tsc -b` and `npm run build` — clean (two chunks, 108 kB + 160 kB gzip)
+- dev server renders every route, **0 console errors**; the login gate is reached, so the app is
+  talking to the live Supabase project
+- `npm run check` — passes, now including Fase 3/4 assertions: stale-session threshold at 8 hours
+  (both sides of the boundary), tote codes unique per wave (RAID R33), the 12-period gate before
+  reorder advice is shown (R44), reorder-level arithmetic incl. the zero-forecast case, and a
+  guard asserting `requeueMessage` never rewrites `idempotency_key` (R42 — that key is the only
+  thing stopping a retry from creating a second ERP document)
+
+### Fase 3 + 4 live verification (15 Aug 2026, later same day)
+
+Both deltas applied to staging (§6b fix needed along the way), three cron jobs scheduled, then
+smoke-tested against the live DB while logged in as admin:
+
+- `/gelombang` (Waves) — empty state renders correctly, no PostgREST errors
+- `/analitik` (Analytics) — all five tabs checked: Scorecard, Perputaran, Tenaga kerja, Peramalan,
+  Sinkronisasi. All render real computed numbers with zero console errors.
+- `classify_abc()` exercised via its UI button — correctly classified items with no movement
+  history as class C, and correctly left `RM-CBM-001` unclassified because it has one
+  `stock_movements` row (the put-away transfer from §7's Fase 2 test) inside the fallback's
+  365-day window — the "no usage" exemption only applies to items with zero movements of *any*
+  type, not zero *issue* movements, which is a subtlety worth knowing but not a bug.
+- Confirmed this staging project is shared across concurrent sessions: two handling units existed
+  that this session didn't create (`LOT-2608-0001` a finished-good unit, `LOT-2608-0002` a second
+  cabai lot at a different unit cost). The scorecard's inventory value initially looked wrong
+  (Rp 16,920,000 for what seemed like one Rp 1.8M lot) until checking `created_at` on
+  `handling_units` showed the other two predated anything this session did. Not a bug — a reminder
+  to verify before assuming, per this project's own "Live environment" note above.
+
+**Zero bugs found in Fase 3/4** this pass — contrast with Fase 2's put-away, which surfaced two
+real bugs the moment it was actually exercised (§6a). That contrast is itself informative: it does
+not mean Fase 3/4 is more correct, only that the parts exercised so far (empty-state rendering,
+one classification RPC) are shallower than put-away's full write path. `generate_wave`,
+`confirm_pick` inside a wave, `enqueue_sync`/`claim_outbox`/`ack_outbox`, and
+`forecast_moving_average` are all still unexercised against live data — treat them with the same
+suspicion put-away deserved before it was tested.
+
 ---
 
 ## 8. Known gaps, in priority order
 
+0. **`generate_wave`, in-wave `confirm_pick`, the ERP outbox worker functions
+   (`enqueue_sync`/`claim_outbox`/`ack_outbox`/`fail_outbox`), and `forecast_moving_average` are
+   all unexercised against live data.** Both deltas are applied and the read-only screens (Waves
+   list, all five Analytics tabs) render correctly, but nothing has actually written through the
+   Fase 3/4 write paths yet — see §7's Fase 3+4 verification note. Also: the `erp-sync` edge
+   function is not deployed and has no `ERP_BASE_URL` / `ERP_TOKEN` secrets, so the outbox will
+   fill and never drain — expected until an ERP sandbox exists (RAID A41/A42: nobody has confirmed
+   the target ERP even accepts inbound documents).
 1. **Master data is placeholder, not real.** Items, suppliers, formula, and rack layout are all
    fictional test data seeded this session — see "Live environment" above. Real PT Neopangan data
    (items, partners, locations, formulas, allergens, `ccp_definitions`, and the Fase 2 location
@@ -272,6 +391,32 @@ against live data.
    the rejection message teaches who is authorised. Confirm after UAT.
 10. **The GitHub repo is public.** See "Live environment" above — no real client data in it, but
     worth a deliberate decision rather than an accident.
+11. **Wave picking has no measured baseline yet (RAID R31, W01).** The plan makes W01 the first
+    task of Fase 3 for a reason: without before-numbers, "wave picking is faster" cannot be
+    proven, and the exit criteria demand proof. Discrete picking stays fully available in
+    `Picking.tsx` as the fallback — do not remove it.
+12. **`generate_wave` reuses an existing pick list if the batch has one**, otherwise it creates
+    one. So a batch already picked discretely can still be pulled into a wave. Nothing prevents
+    that today; watch for it during UAT.
+13. **Labour sessions are screen-scoped.** Leaving the screen closes the session, so a picker who
+    backgrounds the browser mid-aisle ends their own session; reopening starts a new one and the
+    old one is adopted only if the reference matches. Sessions older than 8 hours are flagged as
+    hanging and can be force-closed from the Tenaga kerja tab. Nobody has watched what this does
+    across a real shift.
+14. **`reorder_points` is empty and nothing fills it.** The Peramalan tab shows nothing useful
+    until a planner sets lead time and safety stock per item (E17). `upsertReorderPoint` exists in
+    `api-phase4.ts` but has no UI — deliberate, that data belongs to the planner, not a dev.
+15. **No `entity_mappings` management UI.** E05 maps items/partners/locations to ERP IDs; it is
+    integrator data-entry work, currently SQL-only.
+16. **`v_slow_moving` flags freshly-received stock as "9999 hari"** if it has never been
+    issued/shipped/picked — it computes days-since-movement from `stock_movements` filtered to
+    `ISSUE/SHIPMENT/PICK` only, so a lot received five minutes ago with no outbound movement yet
+    reads identically to genuinely dead stock. Not wrong given the view's definition (it answers
+    "has this ever left the warehouse", not "how old is it"), but it will look alarming on a
+    freshly-seeded or freshly-received item — expect questions about it during UAT.
+17. **This staging project is shared across concurrent sessions/people.** Test data you didn't
+    create can appear without warning (§7's Fase 3+4 verification note has a live example). Check
+    `created_at` before treating unfamiliar data as a bug in your own work.
 
 ---
 
@@ -282,18 +427,24 @@ against live data.
    only have three fictional items to pick from.
 2. Walk picking and staging end-to-end against live data (gap 2) — generate a pick list from a real
    batch, confirm a pick with a deliberate short pick and a deliberate FEFO override, assign and
-   release a staging area. Fix whatever surfaces, the same way put-away's two bugs got fixed this
-   session.
+   release a staging area. Fix whatever surfaces, the same way put-away's two bugs got fixed
+   earlier (§6a). Then do the same for a wave across 3 batches (`generate_wave`, still unexercised
+   — gap 0), checking that each batch lands in its own tote and that the stop order actually
+   follows `pick_sequence`.
 3. Continue the golden path past put-away: pick list → record consumption from pick list → CCP →
-   close batch → check yield/HPP → trace forward.
+   close batch → check yield/HPP → trace forward. Exercising close-batch also gives `trg_enqueue_batch`
+   its first real trigger — check the outbox actually gets a row (gap 0).
 4. Decide the allergen-zoning rollout approach for real inventory (gap 5) before pointing this at
    actual stock.
 5. Physical label print test — rack labels and handling-unit labels both use the same 50×30mm
    sticker size, unconfirmed against a real printer (gap 4).
-6. When ready to leave staging: create a **separate** Supabase project for production and repeat the
+6. **Get the Fase 4 go/no-go decision (RAID R41)** before investing anything further in the ERP
+   integration. If Neofood adopts a full ERP, most of Fase 4 is wasted work. The code is written;
+   deploying and operating it is the expensive part.
+7. When ready to leave staging: create a **separate** Supabase project for production and repeat the
    schema + delta runs — don't repoint the same `neotrace-staging` project's placeholder data at
    real operations.
-7. Then attack the remaining smaller gaps (6, 7, 8, 9, 10).
+8. Then attack the remaining smaller gaps (6, 7, 8, 9, 10, 16, 17).
 
 ---
 
@@ -322,6 +473,14 @@ Dev server is registered in the parent `.claude/launch.json` as **`neotrace`**
 - Never queue a decision the server must make. `resolve_qr`, `release_lot`, `complete_putaway`,
   and `confirm_pick` are online-only by design. Only recording goes in the outbox.
 - Allergen-zoning rejections get a full-screen red panel that must be dismissed — never a toast.
+- **No clock in/out buttons.** Labour sessions follow the screen (`useLabourSession`). Asking an
+  operator to punch a timer is the fastest way to get productivity data abandoned.
+- **Team KPI is the default view; per-person numbers are behind a toggle** and labelled as coaching
+  material (RAID R32). Do not build leaderboards.
+- **Never touch `idempotency_key` when requeueing a sync message** (RAID R42). It is the only thing
+  standing between a retry and a duplicate document in the ERP.
+- Forecast output stays hidden for items with fewer than `MIN_PERIODS_FOR_REORDER` periods of
+  history (RAID R44) — thin data must not masquerade as a planning number.
 - Any deliberate simplification carries a `ponytail:` comment naming the ceiling and upgrade path.
 - Status colours go through `pill()` / `lotTone()` in `src/ui.ts`, not ad-hoc hex.
 - Accent rules are `borderTop`, never a thick left border (the project design hook flags side-tabs).
