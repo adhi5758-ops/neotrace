@@ -5,9 +5,9 @@ interface Props { unread: number; queued: number; role?: string }
 
 const TILES = [
   { to: '/pindai', title: 'Pindai label', hint: 'Cek isi kemasan, kedaluwarsa, status QC' },
-  { to: '/terima', title: 'Terima bahan', hint: 'GRN + cetak label QR per kemasan' },
+  { to: '/gudang', title: 'Gudang', hint: 'Terima, put-away, picking, staging' },
   { to: '/qc', title: 'QC hold', hint: 'Sampel, hasil uji, release lot' },
-  { to: '/produksi', title: 'Produksi', hint: 'Batch, saran FEFO, CCP, tutup batch' },
+  { to: '/produksi', title: 'Produksi', hint: 'Batch, pick list, saran FEFO, CCP, HPP' },
   { to: '/telusur', title: 'Telusur', hint: 'Dua arah: lot → produk, batch → bahan' },
 ];
 
@@ -15,7 +15,7 @@ export default function Home({ unread, queued }: Props) {
   return (
     <div style={s.page}>
       <h1 style={s.h1}>Beranda</h1>
-      <p style={s.sub}>Fase 1 · lot, QR, FEFO, QC hold, peringatan kedaluwarsa</p>
+      <p style={s.sub}>Fase 2 · put-away terarah, zonasi alergen, pick list, staging</p>
 
       {queued > 0 && (
         <div style={{ ...s.card, borderTop: `3px solid ${C.amber}` }}>

@@ -6,10 +6,11 @@
  * perhitungan yield & HPP di database, lalu menampilkan selisih terhadap
  * standard cost — angka itulah alasan Fase 1 ada.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import BatchConsumePanel, { handleCloseBatch } from '../components/BatchConsumePanel';
-import { recordCcp, parseDbError } from '../lib/api';
+import { recordCcp, consumeLot, parseDbError } from '../lib/api';
 import { listBatches, batchRequirements, ccpDefinitions, type Batch, type CcpDefinition } from '../lib/queries';
+import { listPickLists, generatePickList, pickedLines, type PickList } from '../lib/picking';
 import { C, MONO, s, pill } from '../ui';
 
 type Requirement = { itemId: string; itemName: string; qtyNeeded: number; uom: string };
@@ -42,7 +43,7 @@ export default function Production() {
                 onClick={() => setOpen(b)}>
           <div style={s.rowBetween}>
             <div style={s.code}>{b.batch_no}</div>
-            <span style={pill(b.status === 'QC_HOLD' ? 'bad' : b.status === 'IN_PROGRESS' ? 'warn' : 'mute')}>
+            <span style={pill(b.status === 'QC_HOLD' ? 'bad' : b.status === 'RUNNING' ? 'warn' : 'mute')}>
               {b.status}
             </span>
           </div>
@@ -114,6 +115,8 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
       <p style={s.sub}>{batch.items?.name} · target {batch.target_qty} {batch.items?.base_uom}</p>
       {err && <div style={s.err}>{err}</div>}
 
+      <PickListPanel batch={batch} />
+
       <div style={s.secHead}>Bahan yang harus diambil</div>
       {reqs.length === 0 && <div style={s.empty}>Batch belum punya formula. Hubungi planner.</div>}
       {reqs.map((r) => (
@@ -167,6 +170,116 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
         {closing ? 'Menghitung HPP…' : 'Tutup batch & hitung HPP'}
       </button>
     </div>
+  );
+}
+
+/* ------------------------------------------------------- pick list (P28) */
+
+/**
+ * Jembatan Fase 2 → Fase 1. Picking mencatat pergerakan stok keluar rak,
+ * tapi konsumsi batch (yang membentuk HPP) tetap tabel `batch_consumption`.
+ * Tombol di sini memindahkan baris yang sudah dipetik ke sana sekali jalan,
+ * supaya operator tidak memindai bahan yang sama dua kali.
+ */
+function PickListPanel({ batch }: { batch: Batch }) {
+  const [list, setList] = useState<PickList | null>(null);
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    listPickLists(false)
+      .then((all) => setList(all.find((p) => p.batch_id === batch.id && p.status !== 'CANCELLED') ?? null))
+      .catch((e) => setMsg({ tone: 'bad', text: parseDbError(e).message }))
+      .finally(() => setLoading(false));
+  }, [batch.id]);
+  useEffect(load, [load]);
+
+  async function issue() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await generatePickList(batch.id);
+      setMsg({ tone: 'ok', text: 'Pick list terbit. Tugaskan petugas di konsol gudang.' });
+      load();
+    } catch (e) {
+      setMsg({ tone: 'bad', text: (e as { message?: string }).message ?? parseDbError(e).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Catat seluruh baris terpetik sebagai konsumsi batch. Sudah tercatat → dilewati. */
+  async function consumeFromPick() {
+    if (!list) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const picked = await pickedLines(list.id);
+      let ok = 0;
+      const failed: string[] = [];
+      for (const p of picked) {
+        try {
+          await consumeLot({
+            batchId: batch.id,
+            lotId: p.picked_lot_id,
+            itemId: p.item_id,
+            huId: p.picked_hu_id ?? undefined,
+            qtyActual: p.qty_picked,
+            uom: p.uom,
+            fefoOverride: p.fefo_override,
+            overrideReason: p.override_reason ?? undefined,
+          });
+          ok++;
+        } catch (e) {
+          failed.push((e as { message?: string }).message ?? 'gagal');
+        }
+      }
+      setMsg(failed.length
+        ? { tone: 'bad', text: `${ok} baris tercatat, ${failed.length} gagal: ${failed[0]}` }
+        : { tone: 'ok', text: `${ok} baris konsumsi tercatat dari pick list.` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <div style={s.empty}>Memeriksa pick list…</div>;
+
+  return (
+    <>
+      <div style={s.secHead}>Pick list</div>
+      {msg && <div style={msg.tone === 'ok' ? s.ok : s.err}>{msg.text}</div>}
+
+      {!list && (
+        <>
+          <div style={s.empty}>Belum ada pick list. Terbitkan untuk menyiapkan bahan lewat gudang.</div>
+          <button style={{ ...s.btnGhost, width: '100%' }} disabled={busy || !batch.formula_id}
+                  onClick={() => void issue()}>
+            {busy ? 'Menerbitkan…' : 'Terbitkan pick list dari formula'}
+          </button>
+        </>
+      )}
+
+      {list && (
+        <div style={{ ...s.card, borderTop: `3px solid ${list.status === 'COMPLETED' ? C.neo : C.amber}` }}>
+          <div style={s.rowBetween}>
+            <div style={s.code}>{list.doc_no}</div>
+            <span style={pill(list.status === 'COMPLETED' ? 'ok' : 'warn')}>{list.status}</span>
+          </div>
+          <div style={s.meta}>
+            {list.staging_location_id ? 'staging sudah ditetapkan' : 'staging belum ditetapkan'}
+            {list.completed_at ? ` · selesai ${list.completed_at.slice(0, 16).replace('T', ' ')}` : ''}
+          </div>
+          {(list.status === 'COMPLETED' || list.status === 'SHORT') && (
+            <button style={{ ...s.btnGhost, width: '100%', marginTop: 10, borderColor: C.neo, color: C.neo }}
+                    disabled={busy} onClick={() => void consumeFromPick()}>
+              {busy ? 'Mencatat…' : 'Catat konsumsi dari pick list'}
+            </button>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

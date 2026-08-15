@@ -23,10 +23,15 @@ import Production from './screens/Production';
 import Trace from './screens/Trace';
 import Notifications from './screens/Notifications';
 import Scan from './screens/Scan';
+import Warehouse from './screens/Warehouse';
+import Putaway from './screens/Putaway';
+import Picking from './screens/Picking';
+import Staging from './screens/Staging';
+import WarehouseConsole from './screens/WarehouseConsole';
 
 const TABS = [
   { to: '/', label: 'Beranda', end: true },
-  { to: '/terima', label: 'Terima' },
+  { to: '/gudang', label: 'Gudang' },
   { to: '/qc', label: 'QC' },
   { to: '/produksi', label: 'Produksi' },
   { to: '/telusur', label: 'Telusur' },
@@ -80,7 +85,12 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home unread={unread} queued={queued} role={profile?.role} />} />
         <Route path="/pindai" element={<Scan />} />
+        <Route path="/gudang" element={<Warehouse />} />
         <Route path="/terima" element={<Receive />} />
+        <Route path="/putaway" element={<Putaway />} />
+        <Route path="/picking" element={<Picking />} />
+        <Route path="/staging" element={<Staging />} />
+        <Route path="/konsol" element={<WarehouseConsole />} />
         <Route path="/qc" element={<Qc role={profile?.role} />} />
         <Route path="/produksi" element={<Production />} />
         <Route path="/telusur" element={<Trace />} />

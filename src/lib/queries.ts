@@ -27,8 +27,9 @@ export const listItems = (type?: string) =>
   );
 
 export interface Partner { id: string; code: string; name: string; type: string }
+/** partner_type punya nilai 'BOTH' — mitra yang jadi supplier sekaligus klien harus ikut terjaring. */
 export const listPartners = (type: 'SUPPLIER' | 'CUSTOMER') =>
-  rows<Partner>(supabase.from('partners').select('id, code, name, type').eq('type', type).order('name'));
+  rows<Partner>(supabase.from('partners').select('id, code, name, type').in('type', [type, 'BOTH']).order('name'));
 
 export interface Location { id: string; code: string; name: string | null; type: string }
 export const listLocations = () =>
@@ -89,14 +90,14 @@ export const listBatches = (open = true) =>
     supabase
       .from('production_batches')
       .select('id, batch_no, status, qc_result, target_qty, actual_qty, formula_id, started_at, item_id, items(code, name, base_uom, shelf_life_days)')
-      .in('status', open ? ['PLANNED', 'IN_PROGRESS', 'QC_HOLD'] : ['CLOSED'])
+      .in('status', open ? ['PLANNED', 'RUNNING', 'QC_HOLD'] : ['CLOSED'])
       .order('started_at', { ascending: false, nullsFirst: false })
       .limit(50)
   );
 
 export interface FormulaLine {
   id: string; item_id: string; qty: number; uom: string; scrap_pct: number | null;
-  items: { code: string; name: string } | null;
+  sequence: number; items: { code: string; name: string } | null;
 }
 
 /** Kebutuhan bahan batch = baris formula diskalakan ke target qty batch. */
@@ -110,8 +111,9 @@ export async function batchRequirements(batch: Batch): Promise<
 
   const lines = await rows<FormulaLine>(
     supabase.from('formula_lines')
-      .select('id, item_id, qty, uom, scrap_pct, items(code, name)')
+      .select('id, item_id, qty, uom, scrap_pct, sequence, items(code, name)')
       .eq('formula_id', batch.formula_id)
+      .order('sequence')
   );
 
   const outputQty = (formula as { output_qty: number }).output_qty || 1;
@@ -125,14 +127,17 @@ export async function batchRequirements(batch: Batch): Promise<
 }
 
 export interface CcpDefinition {
-  id: string; code: string; name: string | null;
+  id: string; code: string; name: string; parameter: string;
   min_value: number | null; max_value: number | null; uom: string | null; is_critical: boolean;
 }
+/** item_id null di ccp_definitions berarti berlaku untuk semua SKU — harus ikut terambil. */
 export const ccpDefinitions = (itemId: string) =>
   rows<CcpDefinition>(
     supabase.from('ccp_definitions')
-      .select('id, code, name, min_value, max_value, uom, is_critical')
-      .eq('item_id', itemId).order('code')
+      .select('id, code, name, parameter, min_value, max_value, uom, is_critical')
+      .or(`item_id.eq.${itemId},item_id.is.null`)
+      .eq('is_active', true)
+      .order('code')
   );
 
 /* -------------------------------------------------------------- telusur */
@@ -161,6 +166,53 @@ export const lotHandlingUnits = (lotId: string) =>
       .select('id, hu_code, qr_token, qty_remaining, uom, status, locations(code)')
       .eq('lot_id', lotId).order('hu_code')
   );
+
+/** v_trace_forward — kolom pasti dari neotrace_schema.sql. */
+export interface TraceForwardRow {
+  source_lot_id: string; source_lot_code: string; source_item: string;
+  batch_id: string; batch_no: string; product_name: string; qty_used: number;
+  output_lot_id: string | null; do_no: string | null; customer_name: string | null;
+  qty_shipped: number | null; shipped_at: string | null; do_status: string | null;
+}
+
+export interface ConsignmentRow {
+  customer_id: string; customer_name: string; item_code: string; item_name: string;
+  qty_received: number; qty_consumed: number; qty_on_hand: number; qty_variance: number;
+}
+
+/* ------------------------------------------------- konsol gudang (Fase 2) */
+
+export interface WarehouseMapRow {
+  rack_code: string; level_no: number; position_no: number | null; code: string;
+  type: string; allergen_policy: string;
+  current_hu_count: number | null; utilisation_pct: number | null;
+  holds_allergen: boolean | null; contents: string | null;
+}
+export const warehouseMap = () =>
+  rows<WarehouseMapRow>(supabase.from('v_warehouse_map').select('*'));
+
+export interface DockToStockRow {
+  receipt_no: string | null; received_at: string; putaway_at: string; hours_to_stock: number;
+  supplier_name: string | null; item_name: string; location_code: string | null; deviated: boolean;
+}
+export const dockToStock = () =>
+  rows<DockToStockRow>(
+    supabase.from('v_dock_to_stock').select('*').order('putaway_at', { ascending: false }).limit(100)
+  );
+
+export interface PutawayComplianceRow {
+  week: string; tasks_done: number; deviations: number; compliance_pct: number | null;
+}
+export const putawayCompliance = () =>
+  rows<PutawayComplianceRow>(supabase.from('v_putaway_compliance').select('*').limit(12));
+
+export interface PickPerformanceRow {
+  pick_list_id: string; doc_no: string; batch_no: string | null; product_name: string | null;
+  total_lines: number; lines_done: number; lines_short: number; fefo_overrides: number;
+  minutes_taken: number | null; picker: string | null;
+}
+export const pickPerformance = () =>
+  rows<PickPerformanceRow>(supabase.from('v_pick_performance').select('*').limit(50));
 
 /* --------------------------------------------------------- notifikasi */
 
