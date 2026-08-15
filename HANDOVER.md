@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 15 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project. All four SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel. Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
+**Updated:** 15 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project. All four SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -275,6 +275,33 @@ works fine, so this is specific to `day`, not bare aliases in general — not fu
 just worked around by adding an explicit `AS day`. Both the live DB and
 `neotrace_phase3_delta.sql` are fixed. If you hand-write a new view with a bare date-part alias,
 prefer `AS <name>` on principle rather than relying on it being safe.
+
+---
+
+## 6c. Production bug found verifying the Vercel deployment: QR scan-to-open was broken
+
+No `vercel.json` existed, so Vercel had no rewrite rule sending unmatched paths to `index.html`.
+Client-side routing worked fine for in-app navigation (clicking links never leaves the loaded
+page), but any **direct** load of a deep route — a bookmark, a page refresh, or a link opened from
+outside the app — hit Vercel's own 404 instead of the React app. This was caught by chance while
+verifying the Fase 3/4 deployment (`/analitik` 404'd on direct navigation) and turned out to be far
+more serious than a refresh edge case: **`/h/:token` is the exact URL `labels.ts` prints inside
+every QR code label**, and a phone camera opens that URL directly, completely outside the SPA's
+own router. Scan-to-open — the core interaction the whole app is built around — has been broken in
+production since the very first deployment, and nobody had tested it because every prior session
+verified via in-app navigation or `localhost`, never a cold direct hit on the deployed URL.
+
+Fixed with the standard Vercel SPA catch-all in `vercel.json`:
+```json
+{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
+```
+Verified in a fresh browser tab with no prior app state, hitting `/h/:token` directly — landed on
+the Scan screen and resolved the token correctly. Static assets under `/assets` etc. are unaffected
+since Vercel checks disk before applying rewrites.
+
+**Lesson for future verification:** "the app works" claims from in-app click-through are not
+equivalent to "the deployed site works" — always test at least one deep link via direct
+navigation/fresh tab against the actual production URL, not just `localhost` or link-clicking.
 
 ---
 
