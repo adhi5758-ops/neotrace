@@ -214,6 +214,21 @@ export interface PickPerformanceRow {
 export const pickPerformance = () =>
   rows<PickPerformanceRow>(supabase.from('v_pick_performance').select('*').limit(50));
 
+/* ------------------------------------------------------- monitoring */
+
+export interface AlertRow {
+  id: number; type: string; severity: string; title: string; body: string | null;
+  created_at: string; read_at: string | null;
+}
+/** Log peringatan untuk dasbor monitoring — semua status, bukan hanya yang belum dibaca. */
+export const recentAlerts = (limit = 20) =>
+  rows<AlertRow>(
+    supabase.from('notifications')
+      .select('id, type, severity, title, body, created_at, read_at')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+  );
+
 /* --------------------------------------------------------- notifikasi */
 
 export async function markNotificationRead(id: number) {

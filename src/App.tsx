@@ -30,6 +30,7 @@ import Staging from './screens/Staging';
 import WarehouseConsole from './screens/WarehouseConsole';
 import Waves from './screens/Waves';
 import Analytics from './screens/Analytics';
+import Monitor from './screens/Monitor';
 
 const TABS = [
   { to: '/', label: 'Beranda', end: true },
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/produksi" element={<Production />} />
         <Route path="/telusur" element={<Trace />} />
         <Route path="/notifikasi" element={<Notifications onRead={() => setUnread((n) => Math.max(0, n - 1))} />} />
+        <Route path="/monitor" element={<Monitor />} />
         <Route path="/h/:token" element={<Scan />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
