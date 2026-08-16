@@ -46,7 +46,7 @@ export default function Monitor() {
   }, [load]);
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <div style={s.rowBetween}>
         <div>
           <h1 style={s.h1}>Monitoring</h1>
@@ -68,51 +68,57 @@ export default function Monitor() {
       {card && (
         <>
           <div style={s.secHead}>Pekerjaan terbuka</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(140px, 240px))', gap: 8 }}>
             <Stat label="Put-away" value={card.open_putaway} />
             <Stat label="Pick list" value={card.open_picks} />
             <Stat label="Gelombang" value={card.open_waves} />
           </div>
 
           <div style={s.secHead}>Kepatuhan</div>
-          <Metric label="Put-away sesuai saran" value={card.putaway_compliance_pct} good={(v) => v >= 90} />
-          <Metric label="Pengambilan tanpa override FEFO" value={card.fefo_compliance_pct} good={(v) => v >= 95} />
+          <div style={s.cardGrid}>
+            <Metric label="Put-away sesuai saran" value={card.putaway_compliance_pct} good={(v) => v >= 90} />
+            <Metric label="Pengambilan tanpa override FEFO" value={card.fefo_compliance_pct} good={(v) => v >= 95} />
+          </div>
         </>
       )}
 
       <div style={s.secHead}>Integrasi ERP</div>
       {sync.length === 0 && <div style={s.empty}>Belum ada endpoint integrasi terdaftar.</div>}
-      {sync.map((sy) => (
-        <div key={sy.endpoint} style={s.card}>
-          <div style={s.rowBetween}>
-            <div style={s.code}>{sy.endpoint}</div>
-            <span style={pill(sy.dead > 0 ? 'bad' : sy.failed > 0 ? 'warn' : 'ok')}>
-              {sy.dead > 0 ? `${sy.dead} MATI` : sy.failed > 0 ? `${sy.failed} GAGAL` : 'SEHAT'}
-            </span>
+      <div style={s.cardGrid}>
+        {sync.map((sy) => (
+          <div key={sy.endpoint} style={{ ...s.card, marginBottom: 0 }}>
+            <div style={s.rowBetween}>
+              <div style={s.code}>{sy.endpoint}</div>
+              <span style={pill(sy.dead > 0 ? 'bad' : sy.failed > 0 ? 'warn' : 'ok')}>
+                {sy.dead > 0 ? `${sy.dead} MATI` : sy.failed > 0 ? `${sy.failed} GAGAL` : 'SEHAT'}
+              </span>
+            </div>
+            <div style={s.meta}>
+              {sy.pending} menunggu · {sy.acked_24h} terkirim (24 jam) · {sy.direction}
+            </div>
           </div>
-          <div style={s.meta}>
-            {sy.pending} menunggu · {sy.acked_24h} terkirim (24 jam) · {sy.direction}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
       <div style={s.secHead}>Peringatan terbaru</div>
       {alerts.length === 0 && <div style={s.empty}>Tidak ada peringatan.</div>}
-      {alerts.map((a) => (
-        <div key={a.id} style={{
-          ...s.card, borderTop: `3px solid ${a.severity === 'CRITICAL' ? C.chili : a.severity === 'WARN' ? C.amber : C.line}`,
-          opacity: a.read_at ? 0.55 : 1,
-        }}>
-          <div style={s.rowBetween}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{a.title}</div>
-            <span style={pill(a.read_at ? 'mute' : a.severity === 'CRITICAL' ? 'bad' : 'warn')}>{a.type}</span>
+      <div style={s.cardGrid}>
+        {alerts.map((a) => (
+          <div key={a.id} style={{
+            ...s.card, marginBottom: 0, borderTop: `3px solid ${a.severity === 'CRITICAL' ? C.chili : a.severity === 'WARN' ? C.amber : C.line}`,
+            opacity: a.read_at ? 0.55 : 1,
+          }}>
+            <div style={s.rowBetween}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{a.title}</div>
+              <span style={pill(a.read_at ? 'mute' : a.severity === 'CRITICAL' ? 'bad' : 'warn')}>{a.type}</span>
+            </div>
+            {a.body && <div style={{ ...s.meta, lineHeight: 1.5 }}>{a.body}</div>}
+            <div style={{ ...s.meta, marginTop: 6, fontFamily: MONO }}>
+              {a.created_at.slice(0, 16).replace('T', ' ')}
+            </div>
           </div>
-          {a.body && <div style={{ ...s.meta, lineHeight: 1.5 }}>{a.body}</div>}
-          <div style={{ ...s.meta, marginTop: 6, fontFamily: MONO }}>
-            {a.created_at.slice(0, 16).replace('T', ' ')}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

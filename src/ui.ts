@@ -16,6 +16,15 @@ export const MONO = 'var(--font-code)';
 
 export const s: Record<string, CSSProperties> = {
   page: { padding: 16, paddingBottom: 88, minHeight: '100%', maxWidth: 760, margin: '0 auto' },
+  /** Layar desktop: konsol, dasbor, daftar tugas untuk supervisor/QA/planner —
+   *  bukan layar pindai HP. Lebih lebar supaya lebih banyak info per layar. */
+  pageWide: { padding: '20px 24px 60px', minHeight: '100%', maxWidth: 1400, margin: '0 auto' },
+  /** Layar formulir desktop (Terima bahan): lebih lega dari HP tapi tetap
+   *  dibatasi supaya baris teks tidak melebar tak terbaca. */
+  pageForm: { padding: '20px 24px 60px', minHeight: '100%', maxWidth: 900, margin: '0 auto' },
+  /** Grid kartu responsif — 1 kolom di layar sempit, otomatis bertambah kolom
+   *  di layar lebar. Tidak perlu media query: auto-fill yang mengurus. */
+  cardGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10, alignItems: 'start' },
   h1: { fontSize: 20, fontWeight: 800, color: C.ink, margin: '0 0 4px' },
   sub: { fontSize: 12, color: C.slate, fontFamily: MONO, margin: '0 0 18px' },
   secHead: {

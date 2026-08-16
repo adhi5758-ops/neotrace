@@ -438,8 +438,11 @@ export async function openNotifications() {
 }
 
 export function subscribeNotifications(cb: (row: Record<string, unknown>) => void) {
+  // Topik unik per pemanggilan — App.tsx (badge global) dan Notifications.tsx
+  // (daftar layar) berlangganan bersamaan; topik sama ('notif') membuat
+  // panggilan .on() kedua gagal karena channel pertama sudah ter-subscribe.
   return supabase
-    .channel('notif')
+    .channel(`notif-${Math.random().toString(36).slice(2)}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' },
         (p) => cb(p.new as Record<string, unknown>))
     .subscribe();

@@ -21,11 +21,11 @@ type Tab = 'peta' | 'dock' | 'pick' | 'label';
 export default function WarehouseConsole() {
   const [tab, setTab] = useState<Tab>('peta');
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Konsol gudang</h1>
       <p style={s.sub}>Okupansi rak · dock-to-stock · kepatuhan · kinerja picking</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(120px, 220px))', gap: 6, marginBottom: 8 }}>
         {([['peta', 'Peta rak'], ['dock', 'Dock-to-stock'], ['pick', 'Picking'], ['label', 'Label rak']] as const)
           .map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
@@ -172,33 +172,37 @@ function DockPanel() {
 
       <div style={s.secHead}>Kepatuhan put-away per minggu</div>
       {comp.length === 0 && <div style={s.empty}>Belum ada put-away selesai.</div>}
-      {comp.map((c) => (
-        <div key={c.week} style={{ ...s.card, ...s.rowBetween }}>
-          <div>
-            <div style={s.code}>{c.week.slice(0, 10)}</div>
-            <div style={s.meta}>{c.tasks_done} tugas · {c.deviations} menyimpang</div>
-          </div>
-          <div style={{ ...s.code, color: (c.compliance_pct ?? 0) < 90 ? C.amber : C.neo }}>
-            {c.compliance_pct ?? '—'}%
-          </div>
-        </div>
-      ))}
-
-      <div style={s.secHead}>Put-away terakhir</div>
-      {rows.slice(0, 20).map((r, i) => (
-        <div key={i} style={{ ...s.card, ...s.rowBetween }}>
-          <div>
-            <div style={s.code}>{r.item_name}</div>
-            <div style={s.meta}>
-              {r.receipt_no ?? 'tanpa GRN'} · {r.supplier_name ?? '—'} → {r.location_code ?? '—'}
+      <div style={s.cardGrid}>
+        {comp.map((c) => (
+          <div key={c.week} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+            <div>
+              <div style={s.code}>{c.week.slice(0, 10)}</div>
+              <div style={s.meta}>{c.tasks_done} tugas · {c.deviations} menyimpang</div>
+            </div>
+            <div style={{ ...s.code, color: (c.compliance_pct ?? 0) < 90 ? C.amber : C.neo }}>
+              {c.compliance_pct ?? '—'}%
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={s.code}>{r.hours_to_stock} jam</div>
-            {r.deviated && <span style={pill('warn')}>MENYIMPANG</span>}
+        ))}
+      </div>
+
+      <div style={s.secHead}>Put-away terakhir</div>
+      <div style={s.cardGrid}>
+        {rows.slice(0, 20).map((r, i) => (
+          <div key={i} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+            <div>
+              <div style={s.code}>{r.item_name}</div>
+              <div style={s.meta}>
+                {r.receipt_no ?? 'tanpa GRN'} · {r.supplier_name ?? '—'} → {r.location_code ?? '—'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={s.code}>{r.hours_to_stock} jam</div>
+              {r.deviated && <span style={pill('warn')}>MENYIMPANG</span>}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </>
   );
 }
@@ -225,56 +229,60 @@ function PickPanel() {
     <>
       <div style={s.secHead}>Penugasan pick list</div>
       {lists.length === 0 && <div style={s.empty}>Tidak ada pick list terbuka.</div>}
-      {lists.map((p) => (
-        <div key={p.id} style={s.card}>
-          <div style={s.rowBetween}>
-            <div style={s.code}>{p.doc_no}</div>
-            <span style={pill(p.status === 'IN_PROGRESS' ? 'warn' : 'mute')}>{p.status}</span>
+      <div style={s.cardGrid}>
+        {lists.map((p) => (
+          <div key={p.id} style={{ ...s.card, marginBottom: 0 }}>
+            <div style={s.rowBetween}>
+              <div style={s.code}>{p.doc_no}</div>
+              <span style={pill(p.status === 'IN_PROGRESS' ? 'warn' : 'mute')}>{p.status}</span>
+            </div>
+            <div style={s.meta}>
+              {p.production_batches?.batch_no ?? '—'} · {p.production_batches?.items?.name ?? '—'}
+            </div>
+            <select
+              style={{ ...s.input, marginTop: 8 }}
+              value={p.assigned_to ?? ''}
+              disabled={busy}
+              onChange={(e) => {
+                setBusy(true);
+                void assignPicker(p.id, e.target.value || null)
+                  .then(load)
+                  .catch((ex) => setErr(parseDbError(ex).message))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              <option value="">— belum ditugaskan —</option>
+              {pickers.map((u) => (
+                <option key={u.id} value={u.id}>{u.full_name ?? u.id.slice(0, 8)} · {u.role}</option>
+              ))}
+            </select>
           </div>
-          <div style={s.meta}>
-            {p.production_batches?.batch_no ?? '—'} · {p.production_batches?.items?.name ?? '—'}
-          </div>
-          <select
-            style={{ ...s.input, marginTop: 8 }}
-            value={p.assigned_to ?? ''}
-            disabled={busy}
-            onChange={(e) => {
-              setBusy(true);
-              void assignPicker(p.id, e.target.value || null)
-                .then(load)
-                .catch((ex) => setErr(parseDbError(ex).message))
-                .finally(() => setBusy(false));
-            }}
-          >
-            <option value="">— belum ditugaskan —</option>
-            {pickers.map((u) => (
-              <option key={u.id} value={u.id}>{u.full_name ?? u.id.slice(0, 8)} · {u.role}</option>
-            ))}
-          </select>
-        </div>
-      ))}
+        ))}
+      </div>
 
       <div style={s.secHead}>Kinerja picking</div>
       {perf.length === 0 && <div style={s.empty}>Belum ada data picking.</div>}
-      {perf.map((p) => {
-        const short = p.lines_short > 0;
-        return (
-          <div key={p.pick_list_id} style={{ ...s.card, borderTop: `3px solid ${short ? C.amber : C.line}` }}>
-            <div style={s.rowBetween}>
-              <div style={s.code}>{p.doc_no}</div>
-              <div style={s.code}>{p.minutes_taken != null ? `${p.minutes_taken} mnt` : '—'}</div>
+      <div style={s.cardGrid}>
+        {perf.map((p) => {
+          const short = p.lines_short > 0;
+          return (
+            <div key={p.pick_list_id} style={{ ...s.card, marginBottom: 0, borderTop: `3px solid ${short ? C.amber : C.line}` }}>
+              <div style={s.rowBetween}>
+                <div style={s.code}>{p.doc_no}</div>
+                <div style={s.code}>{p.minutes_taken != null ? `${p.minutes_taken} mnt` : '—'}</div>
+              </div>
+              <div style={s.meta}>
+                {p.batch_no ?? '—'} · {p.product_name ?? '—'} · petugas {p.picker ?? '—'}
+              </div>
+              <div style={s.meta}>
+                {p.lines_done}/{p.total_lines} baris
+                {p.lines_short > 0 ? ` · ${p.lines_short} kurang` : ''}
+                {p.fefo_overrides > 0 ? ` · ${p.fefo_overrides} override FEFO` : ''}
+              </div>
             </div>
-            <div style={s.meta}>
-              {p.batch_no ?? '—'} · {p.product_name ?? '—'} · petugas {p.picker ?? '—'}
-            </div>
-            <div style={s.meta}>
-              {p.lines_done}/{p.total_lines} baris
-              {p.lines_short > 0 ? ` · ${p.lines_short} kurang` : ''}
-              {p.fefo_overrides > 0 ? ` · ${p.fefo_overrides} override FEFO` : ''}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -310,18 +318,20 @@ function LabelPanel() {
         <button style={s.btnGhost} onClick={() => setSel(new Set(locs.map((l) => l.id)))}>Pilih semua</button>
       </div>
 
-      {locs.map((l) => (
-        <button key={l.id}
-                style={{ ...s.card, ...s.rowBetween, width: '100%', cursor: 'pointer',
-                         borderColor: sel.has(l.id) ? C.neo : C.line }}
-                onClick={() => toggle(l.id)}>
-          <div style={{ textAlign: 'left' }}>
-            <div style={s.code}>{l.code}</div>
-            <div style={s.meta}>{l.name} · {l.type}</div>
-          </div>
-          <span style={pill(sel.has(l.id) ? 'ok' : 'mute')}>{sel.has(l.id) ? 'PILIH' : '—'}</span>
-        </button>
-      ))}
+      <div style={s.cardGrid}>
+        {locs.map((l) => (
+          <button key={l.id}
+                  style={{ ...s.card, ...s.rowBetween, marginBottom: 0, width: '100%', cursor: 'pointer',
+                           borderColor: sel.has(l.id) ? C.neo : C.line }}
+                  onClick={() => toggle(l.id)}>
+            <div style={{ textAlign: 'left' }}>
+              <div style={s.code}>{l.code}</div>
+              <div style={s.meta}>{l.name} · {l.type}</div>
+            </div>
+            <span style={pill(sel.has(l.id) ? 'ok' : 'mute')}>{sel.has(l.id) ? 'PILIH' : '—'}</span>
+          </button>
+        ))}
+      </div>
 
       <button
         style={{ ...s.btn, opacity: sel.size ? 1 : 0.5 }}

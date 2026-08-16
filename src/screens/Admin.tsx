@@ -24,11 +24,11 @@ const TABS: [Tab, string][] = [['pengguna', 'Pengguna'], ['akses', 'Hak akses'],
 export default function Admin() {
   const [tab, setTab] = useState<Tab>('pengguna');
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Administrator</h1>
       <p style={s.sub}>Pengguna · hak akses WMS · data induk</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(140px, 220px))', gap: 6, marginBottom: 8 }}>
         {TABS.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
                   style={{ ...s.btnGhost, fontSize: 11, fontFamily: MONO, padding: '10px 4px',
@@ -75,40 +75,42 @@ function Users() {
       </div>
       {err && <div style={s.err}>{err}</div>}
 
-      {rows.map((u) => (
-        <div key={u.id} style={s.card}>
-          <div style={s.rowBetween}>
-            <div>
-              <div style={s.code}>{u.full_name ?? u.id.slice(0, 8)}</div>
-              <div style={s.meta}>{u.employee_no ?? '—'} · {u.department ?? '—'}</div>
+      <div style={s.cardGrid}>
+        {rows.map((u) => (
+          <div key={u.id} style={{ ...s.card, marginBottom: 0 }}>
+            <div style={s.rowBetween}>
+              <div>
+                <div style={s.code}>{u.full_name ?? u.id.slice(0, 8)}</div>
+                <div style={s.meta}>{u.employee_no ?? '—'} · {u.department ?? '—'}</div>
+              </div>
+              <span style={pill(u.is_active ? 'ok' : 'bad')}>{u.is_active ? 'AKTIF' : 'NONAKTIF'}</span>
             </div>
-            <span style={pill(u.is_active ? 'ok' : 'bad')}>{u.is_active ? 'AKTIF' : 'NONAKTIF'}</span>
-          </div>
 
-          <div style={s.grid2}>
-            <div>
-              <label style={s.label} htmlFor={`role-${u.id}`}>Peran aplikasi</label>
-              <select id={`role-${u.id}`} style={s.input} value={u.role} disabled={busyId === u.id}
-                      onChange={(e) => void change(u.id, () => setUserRole(u.id, e.target.value))}>
-                {APP_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+            <div style={s.grid2}>
+              <div>
+                <label style={s.label} htmlFor={`role-${u.id}`}>Peran aplikasi</label>
+                <select id={`role-${u.id}`} style={s.input} value={u.role} disabled={busyId === u.id}
+                        onChange={(e) => void change(u.id, () => setUserRole(u.id, e.target.value))}>
+                  {APP_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={s.label} htmlFor={`wms-${u.id}`}>Peran WMS (matriks)</label>
+                <select id={`wms-${u.id}`} style={s.input} value={u.wms_role_id ?? ''} disabled={busyId === u.id}
+                        onChange={(e) => void change(u.id, () => setUserWmsRole(u.id, e.target.value || null))}>
+                  <option value="">— belum ditetapkan —</option>
+                  {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label style={s.label} htmlFor={`wms-${u.id}`}>Peran WMS (matriks)</label>
-              <select id={`wms-${u.id}`} style={s.input} value={u.wms_role_id ?? ''} disabled={busyId === u.id}
-                      onChange={(e) => void change(u.id, () => setUserWmsRole(u.id, e.target.value || null))}>
-                <option value="">— belum ditetapkan —</option>
-                {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
-          </div>
 
-          <button style={{ ...s.btnGhost, width: '100%', marginTop: 8 }} disabled={busyId === u.id}
-                  onClick={() => void change(u.id, () => setUserActive(u.id, !u.is_active))}>
-            {u.is_active ? 'Nonaktifkan' : 'Aktifkan'}
-          </button>
-        </div>
-      ))}
+            <button style={{ ...s.btnGhost, width: '100%', marginTop: 8 }} disabled={busyId === u.id}
+                    onClick={() => void change(u.id, () => setUserActive(u.id, !u.is_active))}>
+              {u.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+            </button>
+          </div>
+        ))}
+      </div>
     </>
   );
 }
@@ -159,36 +161,48 @@ function Permissions() {
     }
   }
 
-  let lastCategory = '';
+  // dikelompokkan per kategori supaya judul kategori tetap selebar layar,
+  // bukan ikut jadi satu sel dalam grid kartu
+  const byCategory = new Map<string, WmsModule[]>();
+  for (const m of modules) {
+    const list = byCategory.get(m.category) ?? [];
+    list.push(m);
+    byCategory.set(m.category, list);
+  }
+
   return (
     <>
-      <label style={s.label} htmlFor="role-pick">Peran</label>
-      <select id="role-pick" style={s.input} value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-        {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-      </select>
+      <div style={{ maxWidth: 420 }}>
+        <label style={s.label} htmlFor="role-pick">Peran</label>
+        <select id="role-pick" style={s.input} value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </div>
       {err && <div style={s.err}>{err}</div>}
 
-      {modules.map((m) => {
-        const showCategory = m.category !== lastCategory;
-        lastCategory = m.category;
-        const level = levelFor(m.id);
-        const key = `${roleId}:${m.id}`;
-        return (
-          <div key={m.id}>
-            {showCategory && <div style={s.secHead}>{m.category}</div>}
-            <div style={{ ...s.card, ...s.rowBetween }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
-              <select
-                style={{ ...pill(LEVEL_TONE[level]), background: '#fff', fontFamily: MONO, border: `1px solid ${C.line}`, padding: '5px 6px' }}
-                value={level} disabled={busy === key}
-                onChange={(e) => void change(m.id, e.target.value as PermissionLevel)}
-              >
-                {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
-              </select>
-            </div>
+      {[...byCategory.entries()].map(([category, mods]) => (
+        <div key={category}>
+          <div style={s.secHead}>{category}</div>
+          <div style={s.cardGrid}>
+            {mods.map((m) => {
+              const level = levelFor(m.id);
+              const key = `${roleId}:${m.id}`;
+              return (
+                <div key={m.id} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+                  <select
+                    style={{ ...pill(LEVEL_TONE[level]), background: '#fff', fontFamily: MONO, border: `1px solid ${C.line}`, padding: '5px 6px' }}
+                    value={level} disabled={busy === key}
+                    onChange={(e) => void change(m.id, e.target.value as PermissionLevel)}
+                  >
+                    {LEVELS.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
+                  </select>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </>
   );
 }
@@ -231,41 +245,45 @@ function MasterData() {
 
   return (
     <>
-      <label style={s.label} htmlFor="table-pick">Tabel data induk</label>
-      <select id="table-pick" style={s.input} value={sel.key}
-              onChange={(e) => setSel(MASTER_TABLES.find((t) => t.key === e.target.value) ?? MASTER_TABLES[0])}>
-        {MASTER_TABLES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-      </select>
+      <div style={{ maxWidth: 480 }}>
+        <label style={s.label} htmlFor="table-pick">Tabel data induk</label>
+        <select id="table-pick" style={s.input} value={sel.key}
+                onChange={(e) => setSel(MASTER_TABLES.find((t) => t.key === e.target.value) ?? MASTER_TABLES[0])}>
+          {MASTER_TABLES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
 
-      <div style={s.grid2}>
-        <button style={s.btnGhost} onClick={() => void downloadTemplate(`templat-${sel.key}.xlsx`, sel.headers, sel.example)}>
-          Unduh templat
-        </button>
-        <button style={{ ...s.btnGhost, borderColor: C.neo, color: C.neo }} disabled={busy}
-                onClick={() => fileRef.current?.click()}>
-          {busy ? 'Mengunggah…' : 'Unggah Excel'}
-        </button>
+        <div style={s.grid2}>
+          <button style={s.btnGhost} onClick={() => void downloadTemplate(`templat-${sel.key}.xlsx`, sel.headers, sel.example)}>
+            Unduh templat
+          </button>
+          <button style={{ ...s.btnGhost, borderColor: C.neo, color: C.neo }} disabled={busy}
+                  onClick={() => fileRef.current?.click()}>
+            {busy ? 'Mengunggah…' : 'Unggah Excel'}
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+               onChange={(e) => e.target.files?.[0] && void handleUpload(e.target.files[0])} />
+        <p style={{ ...s.meta, marginTop: 6, lineHeight: 1.5 }}>
+          Kolom <code>{sel.conflictKey}</code> jadi kunci — baris dengan kode yang sudah ada akan
+          diperbarui, kode baru akan ditambahkan.
+        </p>
+
+        {msg && <div style={msg.tone === 'ok' ? s.ok : s.err}>{msg.text}</div>}
       </div>
-      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
-             onChange={(e) => e.target.files?.[0] && void handleUpload(e.target.files[0])} />
-      <p style={{ ...s.meta, marginTop: 6, lineHeight: 1.5 }}>
-        Kolom <code>{sel.conflictKey}</code> jadi kunci — baris dengan kode yang sudah ada akan
-        diperbarui, kode baru akan ditambahkan.
-      </p>
-
-      {msg && <div style={msg.tone === 'ok' ? s.ok : s.err}>{msg.text}</div>}
 
       <div style={s.secHead}>{rows.length} baris di {sel.label}</div>
       {rows.length === 0 && <div style={s.empty}>Belum ada data.</div>}
-      {rows.map((r, i) => (
-        <div key={i} style={{ ...s.card, ...s.rowBetween }}>
-          <div>
-            <div style={s.code}>{String(r[sel.conflictKey] ?? '—')}</div>
-            <div style={s.meta}>{String(r.name ?? '')}</div>
+      <div style={s.cardGrid}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+            <div>
+              <div style={s.code}>{String(r[sel.conflictKey] ?? '—')}</div>
+              <div style={s.meta}>{String(r.name ?? '')}</div>
+            </div>
+            {'type' in r && <span style={pill('mute')}>{String(r.type)}</span>}
           </div>
-          {'type' in r && <span style={pill('mute')}>{String(r.type)}</span>}
-        </div>
-      ))}
+        ))}
+      </div>
     </>
   );
 }

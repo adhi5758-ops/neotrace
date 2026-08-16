@@ -31,28 +31,30 @@ export default function Production() {
   if (open) return <BatchDetail batch={open} onBack={() => setOpen(null)} />;
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Produksi</h1>
       <p style={s.sub}>{batches.length} batch berjalan</p>
       {err && <div style={s.err}>{err}</div>}
       {loading && <div style={s.empty}>Memuat batch…</div>}
       {!loading && batches.length === 0 && <div style={s.empty}>Tidak ada batch terbuka.</div>}
 
-      {batches.map((b) => (
-        <button key={b.id} style={{ ...s.card, width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                onClick={() => setOpen(b)}>
-          <div style={s.rowBetween}>
-            <div style={s.code}>{b.batch_no}</div>
-            <span style={pill(b.status === 'QC_HOLD' ? 'bad' : b.status === 'RUNNING' ? 'warn' : 'mute')}>
-              {b.status}
-            </span>
-          </div>
-          <div style={s.meta}>
-            {b.items?.name ?? '—'} · target {b.target_qty} {b.items?.base_uom ?? ''}
-            {b.started_at ? ` · mulai ${b.started_at.slice(0, 10)}` : ''}
-          </div>
-        </button>
-      ))}
+      <div style={s.cardGrid}>
+        {batches.map((b) => (
+          <button key={b.id} style={{ ...s.card, marginBottom: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                  onClick={() => setOpen(b)}>
+            <div style={s.rowBetween}>
+              <div style={s.code}>{b.batch_no}</div>
+              <span style={pill(b.status === 'QC_HOLD' ? 'bad' : b.status === 'RUNNING' ? 'warn' : 'mute')}>
+                {b.status}
+              </span>
+            </div>
+            <div style={s.meta}>
+              {b.items?.name ?? '—'} · target {b.target_qty} {b.items?.base_uom ?? ''}
+              {b.started_at ? ` · mulai ${b.started_at.slice(0, 10)}` : ''}
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -91,10 +93,10 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
   if (result) {
     const bad = result.variancePct != null && Math.abs(result.variancePct) > 5;
     return (
-      <div style={s.page}>
+      <div style={s.pageWide}>
         <h1 style={s.h1}>Batch ditutup</h1>
         <p style={s.sub}>{batch.batch_no} · produk jadi masuk karantina QA</p>
-        <div style={{ ...s.card, borderTop: `3px solid ${bad ? C.amber : C.neo}` }}>
+        <div style={{ ...s.card, maxWidth: 480, borderTop: `3px solid ${bad ? C.amber : C.neo}` }}>
           <dl style={kv}>
             <dt>Yield</dt><dd>{fmt(result.yieldPct)} %</dd>
             <dt>HPP aktual</dt><dd>Rp {fmt(result.actualCostPerUom, 0)} / {batch.items?.base_uom}</dd>
@@ -103,13 +105,13 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
             <dd style={{ color: bad ? C.amber : C.neo }}>{fmt(result.variancePct)} %</dd>
           </dl>
         </div>
-        <button style={s.btn} onClick={onBack}>Selesai</button>
+        <button style={{ ...s.btn, maxWidth: 320 }} onClick={onBack}>Selesai</button>
       </div>
     );
   }
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <button style={{ ...s.btnGhost, marginBottom: 14 }} onClick={onBack}>‹ Daftar batch</button>
       <h1 style={s.h1}>{batch.batch_no}</h1>
       <p style={s.sub}>{batch.items?.name} · target {batch.target_qty} {batch.items?.base_uom}</p>
@@ -119,26 +121,30 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
 
       <div style={s.secHead}>Bahan yang harus diambil</div>
       {reqs.length === 0 && <div style={s.empty}>Batch belum punya formula. Hubungi planner.</div>}
-      {reqs.map((r) => (
-        <button key={r.itemId} style={{ ...s.card, ...s.rowBetween, width: '100%', cursor: 'pointer' }}
-                onClick={() => setActive(r)}>
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{r.itemName}</div>
-            <div style={s.meta}>{r.qtyNeeded} {r.uom}</div>
-          </div>
-          <span style={{ color: C.neo, fontFamily: MONO, fontSize: 12 }}>Ambil ›</span>
-        </button>
-      ))}
+      <div style={s.cardGrid}>
+        {reqs.map((r) => (
+          <button key={r.itemId} style={{ ...s.card, ...s.rowBetween, marginBottom: 0, width: '100%', cursor: 'pointer' }}
+                  onClick={() => setActive(r)}>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{r.itemName}</div>
+              <div style={s.meta}>{r.qtyNeeded} {r.uom}</div>
+            </div>
+            <span style={{ color: C.neo, fontFamily: MONO, fontSize: 12 }}>Ambil ›</span>
+          </button>
+        ))}
+      </div>
 
       {ccps.length > 0 && (
         <>
           <div style={s.secHead}>Titik kendali kritis (CCP)</div>
-          {ccps.map((c) => <CcpRow key={c.id} batchId={batch.id} ccp={c} />)}
+          <div style={s.cardGrid}>
+            {ccps.map((c) => <CcpRow key={c.id} batchId={batch.id} ccp={c} />)}
+          </div>
         </>
       )}
 
       <div style={s.secHead}>Tutup batch</div>
-      <div style={s.grid2}>
+      <div style={{ ...s.grid2, maxWidth: 480 }}>
         <div>
           <label style={s.label} htmlFor="act">Hasil aktual ({batch.items?.base_uom})</label>
           <input id="act" style={s.input} type="number" inputMode="decimal" step="0.001"
@@ -152,7 +158,7 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
       </div>
 
       <button
-        style={{ ...s.btn, opacity: closing || !form.actualQty ? 0.5 : 1 }}
+        style={{ ...s.btn, maxWidth: 480, opacity: closing || !form.actualQty ? 0.5 : 1 }}
         disabled={closing || !form.actualQty}
         onClick={() => {
           if (!confirm('Tutup batch? Lot produk jadi dibuat dan HPP dihitung.')) return;

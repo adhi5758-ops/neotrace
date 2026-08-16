@@ -14,44 +14,47 @@ const TILES = [
 
 export default function Home({ unread, queued, role }: Props) {
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Beranda</h1>
       <p style={s.sub}>Fase 2 · put-away terarah, zonasi alergen, pick list, staging</p>
 
-      {queued > 0 && (
-        <div style={{ ...s.card, borderTop: `3px solid ${C.amber}` }}>
-          <div style={s.code}>{queued} pencatatan menunggu sinyal</div>
-          <div style={s.meta}>Tersimpan di HP. Terkirim otomatis saat jaringan kembali.</div>
+      {(queued > 0 || unread > 0) && (
+        <div style={s.cardGrid}>
+          {queued > 0 && (
+            <div style={{ ...s.card, marginBottom: 0, borderTop: `3px solid ${C.amber}` }}>
+              <div style={s.code}>{queued} pencatatan menunggu sinyal</div>
+              <div style={s.meta}>Tersimpan di HP. Terkirim otomatis saat jaringan kembali.</div>
+            </div>
+          )}
+
+          {unread > 0 && (
+            <Link to="/notifikasi" style={{ textDecoration: 'none' }}>
+              <div style={{ ...s.card, marginBottom: 0, borderTop: `3px solid ${C.chili}` }}>
+                <div style={{ ...s.code, color: C.chili }}>{unread} peringatan belum dibaca</div>
+                <div style={s.meta}>Kedaluwarsa · sertifikat halal · pelanggaran FEFO</div>
+              </div>
+            </Link>
+          )}
         </div>
       )}
 
-      {unread > 0 && (
-        <Link to="/notifikasi" style={{ textDecoration: 'none' }}>
-          <div style={{ ...s.card, borderTop: `3px solid ${C.chili}` }}>
-            <div style={{ ...s.code, color: C.chili }}>{unread} peringatan belum dibaca</div>
-            <div style={s.meta}>Kedaluwarsa · sertifikat halal · pelanggaran FEFO</div>
-          </div>
-        </Link>
-      )}
-
       <div style={s.secHead}>Pekerjaan</div>
-      {TILES.map((t) => (
-        <Link key={t.to} to={t.to} style={{ textDecoration: 'none' }}>
-          <div style={{ ...s.card, ...s.rowBetween }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{t.title}</div>
-              <div style={s.meta}>{t.hint}</div>
+      <div style={s.cardGrid}>
+        {TILES.map((t) => (
+          <Link key={t.to} to={t.to} style={{ textDecoration: 'none' }}>
+            <div style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{t.title}</div>
+                <div style={s.meta}>{t.hint}</div>
+              </div>
+              <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>
             </div>
-            <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>
-          </div>
-        </Link>
-      ))}
+          </Link>
+        ))}
 
-      {role === 'ADMIN' && (
-        <>
-          <div style={s.secHead}>Administrator</div>
+        {role === 'ADMIN' && (
           <Link to="/admin" style={{ textDecoration: 'none' }}>
-            <div style={{ ...s.card, ...s.rowBetween, borderTop: `3px solid ${C.ink}` }}>
+            <div style={{ ...s.card, ...s.rowBetween, marginBottom: 0, borderTop: `3px solid ${C.ink}` }}>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Administrator</div>
                 <div style={s.meta}>Pengguna · hak akses WMS · data induk</div>
@@ -59,8 +62,8 @@ export default function Home({ unread, queued, role }: Props) {
               <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>
             </div>
           </Link>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

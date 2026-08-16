@@ -19,6 +19,18 @@
       html, body, #root { height: 100%; margin: 0; }
       body { background: #EEF3F0; color: #0E2A20; font-family: var(--font-ui); -webkit-tap-highlight-color: transparent; }
       button, input, textarea, select { font-family: inherit; }
+
+      /* Di bawah 900px: nav bawah (ibu jari, HP). Di atas: nav atas (mouse,
+         layar lebar) — Pindai/Put-away/Pick list tetap sempit di kedua mode,
+         hanya kerangka navigasi yang berpindah. */
+      /* !important perlu di kedua aturan: nav bawah dan nav atas sama-sama
+         set `display` lewat inline style React, yang menang atas stylesheet
+         biasa — tanpa !important media query ini tidak berpengaruh. */
+      .ntr-desknav { display: none !important; }
+      @media (min-width: 900px) {
+        .ntr-desknav { display: flex !important; }
+        .ntr-bottomnav { display: none !important; }
+      }
     </style>
   </head>
   <body>

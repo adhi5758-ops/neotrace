@@ -28,23 +28,25 @@ export default function Warehouse() {
   ];
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Gudang</h1>
       <p style={s.sub}>Put-away terarah · zonasi alergen · picking · gelombang · staging</p>
 
-      {tiles.map((t) => (
-        <Link key={t.to} to={t.to} style={{ textDecoration: 'none' }}>
-          <div style={{ ...s.card, ...s.rowBetween }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{t.title}</div>
-              <div style={s.meta}>{t.hint}</div>
+      <div style={s.cardGrid}>
+        {tiles.map((t) => (
+          <Link key={t.to} to={t.to} style={{ textDecoration: 'none' }}>
+            <div style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{t.title}</div>
+                <div style={s.meta}>{t.hint}</div>
+              </div>
+              {t.badge != null && t.badge > 0
+                ? <span style={{ ...s.code, color: C.amber, fontSize: 15 }}>{t.badge}</span>
+                : <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>}
             </div>
-            {t.badge != null && t.badge > 0
-              ? <span style={{ ...s.code, color: C.amber, fontSize: 15 }}>{t.badge}</span>
-              : <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>}
-          </div>
-        </Link>
-      ))}
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

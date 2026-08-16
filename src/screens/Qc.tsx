@@ -41,29 +41,31 @@ export default function Qc({ role }: Props) {
   if (open) return <LotDetail row={open} role={role} onBack={() => { setOpen(null); void refresh(); }} />;
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>QC hold</h1>
       <p style={s.sub}>{queue.length} lot menunggu keputusan QA</p>
       {err && <div style={s.err}>{err}</div>}
       {loading && <div style={s.empty}>Memuat antrean…</div>}
       {!loading && queue.length === 0 && <div style={s.empty}>Tidak ada lot tertahan. Bagus.</div>}
 
-      {queue.map((q) => (
-        <button key={q.lot_id} style={{ ...s.card, width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                onClick={() => setOpen(q)}>
-          <div style={s.rowBetween}>
-            <div style={s.code}>{q.lot_code}</div>
-            <span style={pill(q.failed_tests > 0 ? 'bad' : q.pending_tests > 0 ? 'warn' : 'ok')}>
-              {q.failed_tests > 0 ? `${q.failed_tests} GAGAL`
-                : q.pending_tests > 0 ? `${q.pending_tests} MENUNGGU`
-                : 'SIAP RELEASE'}
-            </span>
-          </div>
-          <div style={s.meta}>
-            {q.item_name} · {q.supplier_name ?? 'tanpa supplier'} · tertahan {Math.round(q.hours_on_hold)} jam
-          </div>
-        </button>
-      ))}
+      <div style={s.cardGrid}>
+        {queue.map((q) => (
+          <button key={q.lot_id} style={{ ...s.card, marginBottom: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                  onClick={() => setOpen(q)}>
+            <div style={s.rowBetween}>
+              <div style={s.code}>{q.lot_code}</div>
+              <span style={pill(q.failed_tests > 0 ? 'bad' : q.pending_tests > 0 ? 'warn' : 'ok')}>
+                {q.failed_tests > 0 ? `${q.failed_tests} GAGAL`
+                  : q.pending_tests > 0 ? `${q.pending_tests} MENUNGGU`
+                  : 'SIAP RELEASE'}
+              </span>
+            </div>
+            <div style={s.meta}>
+              {q.item_name} · {q.supplier_name ?? 'tanpa supplier'} · tertahan {Math.round(q.hours_on_hold)} jam
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -98,7 +100,7 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
   const canDecide = !role || role === 'QA' || role === 'ADMIN';
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <button style={{ ...s.btnGhost, marginBottom: 14 }} onClick={onBack}>‹ Antrean QC</button>
       <h1 style={s.h1}>{row.lot_code}</h1>
       <p style={s.sub}>{row.item_name} · {row.supplier_name ?? '—'} · tertahan {Math.round(row.hours_on_hold)} jam</p>
@@ -107,20 +109,22 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
 
       <div style={s.secHead}>Sampel & uji</div>
       {samples.length === 0 && <div style={s.empty}>Belum ada sampel diambil untuk lot ini.</div>}
-      {samples.map((sm) => (
-        <div key={sm.id} style={s.card}>
-          <div style={s.rowBetween}>
-            <div style={s.code}>{sm.sample_no}</div>
-            <span style={pill('mute')}>{sm.type}</span>
+      <div style={s.cardGrid}>
+        {samples.map((sm) => (
+          <div key={sm.id} style={{ ...s.card, marginBottom: 0 }}>
+            <div style={s.rowBetween}>
+              <div style={s.code}>{sm.sample_no}</div>
+              <span style={pill('mute')}>{sm.type}</span>
+            </div>
+            <div style={s.meta}>{sm.qty ?? '—'} {sm.uom ?? ''} · diambil {sm.taken_at.slice(0, 16).replace('T', ' ')}</div>
+            {sm.qc_tests?.map((t) => <TestRow key={t.id} test={t} onSaved={load} />)}
+            <AddTest sampleId={sm.id} onAdded={load} />
           </div>
-          <div style={s.meta}>{sm.qty ?? '—'} {sm.uom ?? ''} · diambil {sm.taken_at.slice(0, 16).replace('T', ' ')}</div>
-          {sm.qc_tests?.map((t) => <TestRow key={t.id} test={t} onSaved={load} />)}
-          <AddTest sampleId={sm.id} onAdded={load} />
-        </div>
-      ))}
+        ))}
+      </div>
 
       <button
-        style={{ ...s.btnGhost, width: '100%', marginTop: 10 }}
+        style={{ ...s.btnGhost, width: '100%', maxWidth: 320, marginTop: 10 }}
         disabled={busy}
         onClick={() => void run(
           () => createIncomingSample(row.lot_id, 0.25, 'KG'),
@@ -131,31 +135,33 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
       </button>
 
       <div style={s.secHead}>Keputusan</div>
-      {!canDecide && <div style={s.empty}>Anda masuk sebagai {role}. Hanya QA yang boleh memutuskan.</div>}
-      <label style={s.label} htmlFor="reason">Alasan / catatan (wajib untuk tahan & recall)</label>
-      <textarea id="reason" style={{ ...s.input, resize: 'vertical' }} rows={2}
-                value={reason} onChange={(e) => setReason(e.target.value)} />
+      <div style={{ maxWidth: 480 }}>
+        {!canDecide && <div style={s.empty}>Anda masuk sebagai {role}. Hanya QA yang boleh memutuskan.</div>}
+        <label style={s.label} htmlFor="reason">Alasan / catatan (wajib untuk tahan & recall)</label>
+        <textarea id="reason" style={{ ...s.input, resize: 'vertical' }} rows={2}
+                  value={reason} onChange={(e) => setReason(e.target.value)} />
 
-      <button style={{ ...s.btn, opacity: busy ? 0.6 : 1 }} disabled={busy}
-              onClick={() => void run(() => releaseLot(row.lot_id, reason || undefined), 'Lot dilepas — boleh dipakai produksi.')}>
-        Release lot
-      </button>
-      <button style={{ ...s.btn, background: C.amber, opacity: busy || reason.trim().length < 4 ? 0.5 : 1 }}
-              disabled={busy || reason.trim().length < 4}
-              onClick={() => void run(() => holdLot(row.lot_id, reason.trim()), 'Lot ditahan.')}>
-        Tahan lot
-      </button>
-      <button style={{ ...s.btn, background: C.chili, opacity: busy || reason.trim().length < 8 ? 0.5 : 1 }}
-              disabled={busy || reason.trim().length < 8}
-              onClick={() => {
-                if (!confirm(`Recall akan mengunci lot ini DAN seluruh produk jadi turunannya. Lanjut?`)) return;
-                void run(async () => {
-                  const r = await quarantineCascade(row.lot_id, reason.trim());
-                  setMsg({ tone: 'bad', text: `Recall: ${r.blocked_lots} lot produk jadi dan ${r.held_batches} batch dikunci.` });
-                }, 'Recall dijalankan.');
-              }}>
-        Recall (kunci turunan)
-      </button>
+        <button style={{ ...s.btn, opacity: busy ? 0.6 : 1 }} disabled={busy}
+                onClick={() => void run(() => releaseLot(row.lot_id, reason || undefined), 'Lot dilepas — boleh dipakai produksi.')}>
+          Release lot
+        </button>
+        <button style={{ ...s.btn, background: C.amber, opacity: busy || reason.trim().length < 4 ? 0.5 : 1 }}
+                disabled={busy || reason.trim().length < 4}
+                onClick={() => void run(() => holdLot(row.lot_id, reason.trim()), 'Lot ditahan.')}>
+          Tahan lot
+        </button>
+        <button style={{ ...s.btn, background: C.chili, opacity: busy || reason.trim().length < 8 ? 0.5 : 1 }}
+                disabled={busy || reason.trim().length < 8}
+                onClick={() => {
+                  if (!confirm(`Recall akan mengunci lot ini DAN seluruh produk jadi turunannya. Lanjut?`)) return;
+                  void run(async () => {
+                    const r = await quarantineCascade(row.lot_id, reason.trim());
+                    setMsg({ tone: 'bad', text: `Recall: ${r.blocked_lots} lot produk jadi dan ${r.held_batches} batch dikunci.` });
+                  }, 'Recall dijalankan.');
+                }}>
+          Recall (kunci turunan)
+        </button>
+      </div>
     </div>
   );
 }

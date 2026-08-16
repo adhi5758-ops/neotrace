@@ -37,28 +37,30 @@ export default function Notifications({ onRead }: Props) {
   }
 
   return (
-    <div style={s.page}>
+    <div style={s.pageWide}>
       <h1 style={s.h1}>Peringatan</h1>
       <p style={s.sub}>{rows.length} belum dibaca</p>
       {err && <div style={s.err}>{err}</div>}
       {loading && <div style={s.empty}>Memuat…</div>}
       {!loading && rows.length === 0 && <div style={s.empty}>Tidak ada peringatan terbuka.</div>}
 
-      {rows.map((n) => (
-        <div key={n.id} style={{ ...s.card, borderTop: `3px solid ${n.severity === 'CRITICAL' ? C.chili : n.severity === 'WARN' ? C.amber : C.line}` }}>
-          <div style={s.rowBetween}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{n.title}</div>
-            <span style={pill(tone(n.severity))}>{n.type}</span>
+      <div style={s.cardGrid}>
+        {rows.map((n) => (
+          <div key={n.id} style={{ ...s.card, marginBottom: 0, borderTop: `3px solid ${n.severity === 'CRITICAL' ? C.chili : n.severity === 'WARN' ? C.amber : C.line}` }}>
+            <div style={s.rowBetween}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{n.title}</div>
+              <span style={pill(tone(n.severity))}>{n.type}</span>
+            </div>
+            {n.body && <div style={{ ...s.meta, lineHeight: 1.5 }}>{n.body}</div>}
+            <div style={{ ...s.rowBetween, marginTop: 10 }}>
+              <span style={s.meta}>{n.created_at.slice(0, 16).replace('T', ' ')}</span>
+              <button style={{ ...s.btnGhost, padding: '7px 11px', fontSize: 12 }} onClick={() => void dismiss(n.id)}>
+                Sudah dibaca
+              </button>
+            </div>
           </div>
-          {n.body && <div style={{ ...s.meta, lineHeight: 1.5 }}>{n.body}</div>}
-          <div style={{ ...s.rowBetween, marginTop: 10 }}>
-            <span style={s.meta}>{n.created_at.slice(0, 16).replace('T', ' ')}</span>
-            <button style={{ ...s.btnGhost, padding: '7px 11px', fontSize: 12 }} onClick={() => void dismiss(n.id)}>
-              Sudah dibaca
-            </button>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

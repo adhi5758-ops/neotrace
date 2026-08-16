@@ -109,7 +109,7 @@ export default function Receive() {
 
   if (done) {
     return (
-      <div style={s.page}>
+      <div style={s.pageForm}>
         <h1 style={s.h1}>Bahan diterima</h1>
         <p style={s.sub}>{done.lotCode} · {done.handlingUnits.length} kemasan · status QUARANTINE</p>
 
@@ -119,15 +119,17 @@ export default function Receive() {
         </div>
 
         <div style={s.secHead}>Label untuk dicetak</div>
-        {done.handlingUnits.map((h) => (
-          <div key={h.id} style={{ ...s.card, ...s.rowBetween }}>
-            <div>
-              <div style={s.code}>{h.hu_code}</div>
-              <div style={s.meta}>{h.qty_initial} {item?.base_uom}</div>
+        <div style={s.cardGrid}>
+          {done.handlingUnits.map((h) => (
+            <div key={h.id} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+              <div>
+                <div style={s.code}>{h.hu_code}</div>
+                <div style={s.meta}>{h.qty_initial} {item?.base_uom}</div>
+              </div>
+              <span style={{ ...s.meta, marginTop: 0 }}>{h.qr_token.slice(0, 8)}…</span>
             </div>
-            <span style={{ ...s.meta, marginTop: 0 }}>{h.qr_token.slice(0, 8)}…</span>
-          </div>
-        ))}
+          ))}
+        </div>
 
         {err && <div style={s.err}>{err}</div>}
         <button style={s.btn} onClick={() => void print()}>Cetak {done.handlingUnits.length} label</button>
@@ -142,7 +144,7 @@ export default function Receive() {
   }
 
   return (
-    <form style={s.page} onSubmit={submit}>
+    <form style={s.pageForm} onSubmit={submit}>
       <h1 style={s.h1}>Terima bahan</h1>
       <p style={s.sub}>GRN · lot masuk karantina sampai QA melepas</p>
       {loadErr && <div style={s.err}>Master gagal dimuat: {loadErr}</div>}

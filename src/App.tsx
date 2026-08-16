@@ -41,6 +41,10 @@ const TABS = [
   { to: '/telusur', label: 'Telusur' },
 ];
 
+// Nav desktop punya satu tab lagi (Analitik) — di HP itu dijangkau lewat
+// Beranda supaya nav bawah tidak sesak, tapi di layar lebar ada ruang.
+const DESKTOP_TABS = [...TABS, { to: '/analitik', label: 'Analitik' }];
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -86,6 +90,7 @@ export default function App() {
         unread={unread}
         queued={queued}
       />
+      <DeskNav />
       <Routes>
         <Route path="/" element={<Home unread={unread} queued={queued} role={profile?.role} />} />
         <Route path="/pindai" element={<Scan />} />
@@ -134,9 +139,36 @@ function TopBar({ name, role, unread, queued }: { name: string; role: string; un
   );
 }
 
+/**
+ * Nav atas untuk layar lebar (≥900px) — CSS media query di index.html yang
+ * menukar dengan nav bawah, bukan JS, supaya tidak ada flicker saat resize.
+ * Isi layar (termasuk Pindai/Put-away/Pick list) tetap sempit di mode ini;
+ * hanya kerangka navigasi yang berubah bentuk.
+ */
+function DeskNav() {
+  return (
+    <nav className="ntr-desknav" style={desknav.wrap}>
+      {DESKTOP_TABS.map((t) => (
+        <NavLink
+          key={t.to}
+          to={t.to}
+          end={t.end}
+          style={({ isActive }) => ({
+            ...desknav.link,
+            color: isActive ? C.neo : C.slate,
+            borderBottom: `2px solid ${isActive ? C.neo : 'transparent'}`,
+          })}
+        >
+          {t.label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 function BottomNav() {
   return (
-    <nav style={nav.wrap}>
+    <nav className="ntr-bottomnav" style={nav.wrap}>
       {TABS.map((t) => (
         <NavLink
           key={t.to}
@@ -194,6 +226,14 @@ const bar: Record<string, React.CSSProperties> = {
   bell: { fontSize: 11, color: C.lab, textDecoration: 'none', fontFamily: MONO, display: 'flex', gap: 5, alignItems: 'center' },
   count: { background: C.chili, color: '#fff', fontSize: 9.5, padding: '1px 5px', fontWeight: 700 },
   out: { background: 'none', border: `1px solid #33564A`, color: '#9FB5AA', fontSize: 10.5, padding: '5px 8px', cursor: 'pointer' },
+};
+
+const desknav: Record<string, React.CSSProperties> = {
+  wrap: { gap: 4, padding: '0 24px', background: '#fff', borderBottom: `1px solid ${C.line}` },
+  link: {
+    padding: '13px 16px', fontSize: 12.5, fontWeight: 700, textDecoration: 'none',
+    fontFamily: MONO, letterSpacing: '.04em',
+  },
 };
 
 const nav: Record<string, React.CSSProperties> = {
