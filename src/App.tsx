@@ -114,9 +114,12 @@ export default function App() {
 function TopBar({ name, role, unread, queued }: { name: string; role: string; unread: number; queued: number }) {
   return (
     <header style={bar.wrap}>
-      <div>
-        <div style={bar.brand}>NEOTRACE</div>
-        <div style={bar.who}>{name} · {role}</div>
+      <div style={bar.brandRow}>
+        <img src="/neofood-logo.svg" alt="Neofood" style={bar.logo} />
+        <div>
+          <div style={bar.brand}>NEOTRACE</div>
+          <div style={bar.who}>{name} · {role}</div>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {queued > 0 && <span style={bar.queued}>{queued} antre</span>}
@@ -181,6 +184,8 @@ const bar: Record<string, React.CSSProperties> = {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
     padding: '10px 14px', background: C.ink, color: C.lab, position: 'sticky', top: 0, zIndex: 30,
   },
+  brandRow: { display: 'flex', alignItems: 'center', gap: 9 },
+  logo: { width: 30, height: 30, borderRadius: 7, flex: 'none' },
   brand: { fontSize: 13, fontWeight: 800, letterSpacing: '.16em' },
   who: { fontSize: 10, fontFamily: MONO, color: '#9FB5AA', marginTop: 2 },
   queued: { fontSize: 9.5, fontFamily: MONO, color: C.amber, border: `1px solid ${C.amber}`, padding: '3px 5px' },
