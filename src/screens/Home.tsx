@@ -12,7 +12,7 @@ const TILES = [
   { to: '/analitik', title: 'Analitik', hint: 'Perputaran, KPI, peramalan, sinkronisasi ERP' },
 ];
 
-export default function Home({ unread, queued }: Props) {
+export default function Home({ unread, queued, role }: Props) {
   return (
     <div style={s.page}>
       <h1 style={s.h1}>Beranda</h1>
@@ -46,6 +46,21 @@ export default function Home({ unread, queued }: Props) {
           </div>
         </Link>
       ))}
+
+      {role === 'ADMIN' && (
+        <>
+          <div style={s.secHead}>Administrator</div>
+          <Link to="/admin" style={{ textDecoration: 'none' }}>
+            <div style={{ ...s.card, ...s.rowBetween, borderTop: `3px solid ${C.ink}` }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Administrator</div>
+                <div style={s.meta}>Pengguna · hak akses WMS · data induk</div>
+              </div>
+              <span style={{ color: C.neo, fontFamily: MONO, fontSize: 16 }}>›</span>
+            </div>
+          </Link>
+        </>
+      )}
     </div>
   );
 }
