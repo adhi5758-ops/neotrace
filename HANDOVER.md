@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix and Excel-upload master data (§6d), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
+**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix, Excel-upload master data, and new-user creation (§6d, §6f), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -118,6 +118,8 @@ neotrace-web/
       Admin.tsx               ADMIN — Pengguna · Hak akses · Data induk (3 tabs), reached from Beranda only if role=ADMIN
   supabase/functions/erp-sync/
       index.ts                FASE 4 — PROVIDED Deno worker; outside src, not in the Vite build
+  supabase/functions/admin-create-user/
+      index.ts                ADMIN — creates auth.users + profiles rows; only edge function actually deployed so far (§6f)
 ```
 
 Navigation: bottom tabs are **Beranda · Gudang · QC · Produksi · Telusur**.
@@ -419,6 +421,52 @@ to one column; `/notifikasi` confirmed non-crashing on both `localhost:5173` and
 
 ---
 
+## 6f. New-user creation added to `/admin` (16 Aug 2026)
+
+Closes gap 19 below — `/admin` → Pengguna previously said outright that new accounts had to be
+created via the Supabase dashboard. `auth.admin.createUser()` needs the service role key, and
+that key must never reach the client bundle, so this needed a server-side piece.
+
+**Added `supabase/functions/admin-create-user`** (Deno edge function, first edge function
+actually deployed this project — `erp-sync` from Fase 4 still isn't, per gap 0). Deployed with
+`verify_jwt: true` (the Supabase gateway rejects any request without a valid session before the
+function's own code runs at all), and the function does a *second*, more specific check inside:
+it builds a client scoped to the caller's own JWT (anon key + `Authorization` header), reads
+that caller's own `profiles` row through normal RLS (`p_profile_self`), and refuses unless
+`role = 'ADMIN'` and `is_active`. Only after both gates pass does it touch a service-role client
+to call `auth.admin.createUser({ email, password, email_confirm: true })` — `email_confirm:
+true` is deliberate, this is an internal ops tool with no public signup flow, so there's no
+"click the link we emailed you" step to wire up. It then inserts the matching `profiles` row
+itself (full_name, employee_no, department, role, wms_role_id) using the same service-role
+client; if that insert fails (e.g. duplicate `employee_no`, which is `unique`), it deletes the
+auth user it just created rather than leaving an orphaned login with no profile.
+
+`lib/admin.ts` gained `createUser(input)`, calling `supabase.functions.invoke('admin-create-user',
+...)`. The tricky part: `functions.invoke()` puts the HTTP error on `error`, not `data`, and the
+actual `{error: "..."}` JSON body from the function lives on `error.context` (a `Response`) —
+had to `await error.context.json()` to surface the real message instead of a generic "Edge
+Function returned a non-2xx status code".
+
+**UI** (`Admin.tsx`): a "+ Tambah pengguna baru" button opens a form (name, email, initial
+password with a "Acak" button that generates one via `crypto.getRandomValues`, optional employee
+no./department, app role, WMS role). On success the email + password are shown once in a plain
+callout — not emailed anywhere, the admin is expected to hand them to the new employee directly,
+consistent with how this factory-floor tool already operates (shared devices, supervisor-issued
+logins, not self-service signup).
+
+**Verified live end-to-end**, not just deployed: created a real test account through the actual
+UI, confirmed the row landed correctly in both `auth.users` (email pre-confirmed) and `profiles`
+(right full_name/role/is_active, employee_no/department correctly null when left blank) via
+direct SQL, confirmed a `curl` call with no `Authorization` header gets `401` before the function
+body runs at all, then deleted the test account from both tables. Deployed and pushed; production
+Vercel build shows the button and opens the form correctly.
+
+**Still true after this:** gap 19's other half (new *auth* users can't self-serve, someone with
+ADMIN has to do this) is now solved from inside the app instead of needing the Supabase
+dashboard, but it's still ADMIN-gated, deliberately — this isn't a public registration page.
+
+---
+
 ## 7. Verification done
 
 - `npx tsc -b` — clean
@@ -563,11 +611,11 @@ suspicion put-away deserved before it was tested.
     `/admin` doesn't currently change what they can do anywhere else in the app, only what's
     displayed on the Hak akses tab. Wiring real RLS/UI gating to `wms_role_id` is future work, not
     done this session — don't assume the matrix is enforced anywhere yet.
-19. **New user accounts cannot be created from `/admin`.** Creating an Auth user needs the
-    Supabase service role key, which the client app deliberately never has. `/admin` → Pengguna
-    can only manage the role/status of users who already exist (created via the Supabase
-    dashboard or `auth.admin` API). The screen says this explicitly (amber notice card) so it
-    isn't mistaken for a bug.
+19. ~~New user accounts cannot be created from `/admin`.~~ **Resolved (§6f, 16 Aug 2026)** — a
+    "+ Tambah pengguna baru" form now creates both the Auth account and the `profiles` row via
+    the `admin-create-user` edge function, gated to active ADMIN callers. The service role key
+    itself still never reaches the client, as required — the edge function is the only thing
+    that touches it.
 
 ---
 
