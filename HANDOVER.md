@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 15 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project. All four SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
+**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix and Excel-upload master data — see §6d. All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -16,7 +16,8 @@ Read this top to bottom before touching code. Everything a new session needs is 
 | GitHub | [adhi5758-ops/neotrace](https://github.com/adhi5758-ops/neotrace), branch `main`. **Currently public** — contains no real Neofood business data (schema + fictional placeholder seed only), but exposes app architecture and RLS/trigger logic. Consider making it private. |
 | Vercel | [neotrace-web.vercel.app](https://neotrace-web.vercel.app) — project `neotrace-web`, auto-deploys on push to `main` via the GitHub integration (connected directly in the Vercel dashboard, not through the Claude↔Vercel MCP connector — that connector can manage projects but its deployment/list APIs return 403/404 unpredictably; don't waste time on it, use `git push`). Deployment protection is off (public). |
 | Admin login | `adhi5758@gmail.com`, `profiles.role = 'ADMIN'` |
-| Master data | **placeholder only, not real** — 2 suppliers, 1 customer, 3 items (2 raw + 1 finished), 1 formula (2 lines), 2 CCPs, 6 rack locations (A1/A2 × L1/L2, allergen-zoned) + 2 staging areas (from the Fase 2 delta's own seed) |
+| Master data | **placeholder only, not real** — 2 suppliers, 1 customer, 3 items (2 raw + 1 finished), 1 formula (2 lines), 2 CCPs, 6 rack locations (A1/A2 × L1/L2, allergen-zoned) + 2 staging areas (from the Fase 2 delta's own seed); can now be bulk-managed via `/admin` → Data induk (§6d) instead of hand-written SQL |
+| WMS role/permission matrix | `wms_roles` (6), `wms_modules` (17), `wms_role_permissions` (102) — seeded 1:1 from `wms_roles_permissions_matrix.csv`, editable at `/admin` → Hak akses (§6d) |
 
 To ship a code change: commit locally, then run `git push` from this folder — nobody in this environment has git credentials cached, so pushing always needs a human at the keyboard. Vercel rebuilds automatically. To run SQL against the live project, use the Supabase MCP tools with project id `wwghhyeidmxcwjfyhtgn`.
 
@@ -53,6 +54,7 @@ All source files now live in this folder alongside the app:
 | `neotrace_phase2_delta.sql` | Put-away, allergen zoning, pick lists, staging, console views | applied to staging (incl. the §6a constraint fix) |
 | `neotrace_phase3_delta.sql` | Wave picking, labour sessions & KPI views, ABC, turnover, slow moving, utilisation, ops scorecard | applied to staging (incl. the §6b syntax fix) |
 | `neotrace_phase4_delta.sql` | ERP outbox/inbox, entity mappings, payload builders, claim/ack/fail, sync health, consumption history, seasonality, forecasting, reorder points | applied to staging |
+| `neotrace_admin_delta.sql` | Administrator layer — `wms_roles`/`wms_modules`/`wms_role_permissions`, `profiles.wms_role_id`, RLS gated on `current_role_is('ADMIN')`, seeded from `wms_roles_permissions_matrix.csv` | applied to staging |
 | `neotrace_schema_v2_wms.sql` | Older full-WMS draft — **do not run**, phase2 delta supersedes it (its own header says so) |
 | `NEOTRACE_Fase1_Rencana_Kerja.xlsx` | 6-week plan, T01–T44 | reference |
 | `NEOTRACE_Fase2_Rencana_Kerja.xlsx` | 8-week plan, P01–P43, RACI, RAID, exit criteria | reference |
@@ -89,6 +91,9 @@ neotrace-web/
       api-phase3.ts           FASE 3 — PROVIDED: waves, labour, ABC/turnover/scorecard reads
       labour.ts               FASE 3 — useLabourSession hook, stale-session rules, supervisor board
       api-phase4.ts           FASE 4 — sync health & outbox intervention, forecasts, reorder points
+      admin.ts                ADMIN — WMS role/permission matrix + user management queries
+      masterData.ts           ADMIN — Excel-upload table config (items/partners/locations) + row coercion
+      excel.ts                ADMIN — SheetJS read/write, xlsx dynamically imported (own chunk)
     components/
       QrScanner.tsx           PROVIDED, untouched
       BatchConsumePanel.tsx   PROVIDED, untouched
@@ -110,6 +115,7 @@ neotrace-web/
       Notifications.tsx       realtime alerts, mark read
       Waves.tsx               FASE 3 — form waves, assign picker, open wave sheet
       Analytics.tsx           FASE 3+4 — scorecard · turnover · labour · forecast · sync (5 tabs)
+      Admin.tsx               ADMIN — Pengguna · Hak akses · Data induk (3 tabs), reached from Beranda only if role=ADMIN
   supabase/functions/erp-sync/
       index.ts                FASE 4 — PROVIDED Deno worker; outside src, not in the Vite build
 ```
@@ -305,6 +311,59 @@ navigation/fresh tab against the actual production URL, not just `localhost` or 
 
 ---
 
+## 6d. Administrator menu — WMS role/permission matrix, master data Excel upload (16 Aug 2026)
+
+Built from `wms_roles_permissions_matrix.csv` (supplied this session), on request: an
+Administrator menu covering (1) user role management, (2) a data-driven WMS permission matrix,
+(3) Excel/CSV bulk upload for master data with a downloadable template.
+
+**Design decision — additive, not a rewrite.** The matrix from the CSV (6 roles × 17 modules,
+4 permission levels) does not map onto the existing `profiles.role` enum (`OPERATOR/WAREHOUSE/
+QA/PLANNER/FINANCE/ADMIN/VIEWER`), which every RLS policy in the app already depends on. Rather
+than risk that enum, the matrix lives in three new tables — `wms_roles`, `wms_modules`,
+`wms_role_permissions` (composite PK `role_id, module_id`) — plus a nullable
+`profiles.wms_role_id` FK. `profiles.role` still gates all existing RLS; `wms_role_id` is purely
+informational/UI-driven for now (no RLS policy reads it yet — see gap 18). All three new tables
+are readable by any active user and writable only by `current_role_is('ADMIN')`, reusing the
+function that already gates every other admin-only policy in the schema.
+
+**Master data upload.** `items`/`partners`/`locations` already existed since Fase 1/2; nothing
+new in the schema. `/admin` → Data induk lets an admin pick a table, download a template
+(header row + one example row), and upload a filled `.xlsx`/`.xls`/`.csv` back — parsed
+client-side with SheetJS, coerced (blank → `null`, `'true'/'false'` strings → real booleans for
+columns like `requires_halal_cert`, `is_staging`), then `upsert()`'d on the table's natural code
+column (`items.code`, `partners.code`, `locations.code`). No file ever leaves the browser except
+straight to Supabase's PostgREST endpoint.
+
+**xlsx supply-chain note.** The npm-registry `xlsx@0.18.5` carries HIGH-severity advisories
+(prototype pollution, ReDoS). Installed instead from SheetJS's own patched distribution:
+`npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`. It's also dynamically
+imported inside `lib/excel.ts` (`await import('xlsx')`), not imported at module top — a static
+import doubled the main bundle (559 kB → 1062 kB raw); dynamic import puts it in its own
+163 kB-gzip chunk that only loads when the Data induk tab is actually opened, keeping the main
+chunk back down around 164 kB gzip.
+
+**Live-verified against the staging Supabase project:**
+- `wms_roles`/`wms_modules`/`wms_role_permissions` row counts confirmed 6/17/102, matching the CSV.
+- Switched the role selector to **System Administrator** and confirmed "Operational Dashboards"
+  correctly shows **Lihat saja (VIEW_ONLY)** — the single non-FULL_CONTROL cell for that role in
+  the whole matrix — proving the seed transcribed the CSV exactly, not just row/column counts.
+- Full upload round-trip: synthesized a CSV file in-browser, uploaded through the real
+  `<input type="file">`, confirmed the UI showed "1 baris diunggah" and the new row appeared;
+  then checked directly in Postgres that `requires_halal_cert` landed as a genuine `boolean`
+  (`pg_typeof` confirmed, not a string), `standard_cost` as `numeric`, and the blank
+  `shelf_life_days` cell as real `null`. Test row deleted afterward — `items` is a catalog other
+  screens browse, unlike lot/transaction test data left in place elsewhere in this project as
+  evidence.
+- Verified `/admin` on the **live production URL** (`neotrace-web.vercel.app/admin`, not just
+  `localhost`), logged in as the real admin account — renders identically to dev, zero console
+  errors.
+
+No bugs found this pass — `npm run check` and `npm run build` were both clean on the first
+attempt once the dynamic-import fix landed.
+
+---
+
 ## 7. Verification done
 
 - `npx tsc -b` — clean
@@ -444,6 +503,16 @@ suspicion put-away deserved before it was tested.
 17. **This staging project is shared across concurrent sessions/people.** Test data you didn't
     create can appear without warning (§7's Fase 3+4 verification note has a live example). Check
     `created_at` before treating unfamiliar data as a bug in your own work.
+18. **`profiles.wms_role_id` and the new permission matrix (§6d) are not read by any RLS policy
+    yet.** They're informational/UI-only today — assigning someone "Inbound Supervisor" in
+    `/admin` doesn't currently change what they can do anywhere else in the app, only what's
+    displayed on the Hak akses tab. Wiring real RLS/UI gating to `wms_role_id` is future work, not
+    done this session — don't assume the matrix is enforced anywhere yet.
+19. **New user accounts cannot be created from `/admin`.** Creating an Auth user needs the
+    Supabase service role key, which the client app deliberately never has. `/admin` → Pengguna
+    can only manage the role/status of users who already exist (created via the Supabase
+    dashboard or `auth.admin` API). The screen says this explicitly (amber notice card) so it
+    isn't mistaken for a bug.
 
 ---
 
@@ -451,7 +520,9 @@ suspicion put-away deserved before it was tested.
 
 1. Import real master data (gap 1) — items, partners, locations with the real Sauce Division rack
    layout, formulas, `ccp_definitions`. This unblocks everything else; right now Receive/Production
-   only have three fictional items to pick from.
+   only have three fictional items to pick from. `/admin` → Data induk (§6d) can now do items/
+   partners/locations via Excel upload instead of hand-written SQL — formulas and
+   `ccp_definitions` still need a SQL run, they aren't in the uploadable table list.
 2. Walk picking and staging end-to-end against live data (gap 2) — generate a pick list from a real
    batch, confirm a pick with a deliberate short pick and a deliberate FEFO override, assign and
    release a staging area. Fix whatever surfaces, the same way put-away's two bugs got fixed
