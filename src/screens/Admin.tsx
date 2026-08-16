@@ -11,8 +11,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, parseDbError } from '../lib/api';
 import {
   listWmsRoles, listWmsModules, listWmsPermissions, setPermission,
-  listUsers, setUserRole, setUserWmsRole, setUserActive, APP_ROLES,
-  type WmsRole, type WmsModule, type WmsRolePermission, type PermissionLevel, type UserRow,
+  listUsers, setUserRole, setUserWmsRole, setUserActive, createUser, APP_ROLES,
+  type WmsRole, type WmsModule, type WmsRolePermission, type PermissionLevel, type UserRow, type NewUserInput,
 } from '../lib/admin';
 import { MASTER_TABLES, coerceRow, type MasterTableConfig } from '../lib/masterData';
 import { parseExcelFile, downloadTemplate } from '../lib/excel';
@@ -52,6 +52,7 @@ function Users() {
   const [roles, setRoles] = useState<WmsRole[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([listUsers(), listWmsRoles()])
@@ -67,13 +68,17 @@ function Users() {
 
   return (
     <>
-      <div style={{ ...s.card, borderTop: `3px solid ${C.amber}` }}>
-        <div style={s.meta}>
-          Pengguna baru dibuat lewat Supabase Auth, bukan di sini — perlu service role, tidak
-          tersedia di aplikasi klien. Layar ini hanya mengatur peran pengguna yang sudah ada.
-        </div>
-      </div>
       {err && <div style={s.err}>{err}</div>}
+
+      {!showAdd && (
+        <button style={{ ...s.btn, maxWidth: 320 }} onClick={() => setShowAdd(true)}>
+          + Tambah pengguna baru
+        </button>
+      )}
+      {showAdd && (
+        <AddUser roles={roles} onCancel={() => setShowAdd(false)}
+                 onCreated={() => { setShowAdd(false); load(); }} />
+      )}
 
       <div style={s.cardGrid}>
         {rows.map((u) => (
@@ -112,6 +117,119 @@ function Users() {
         ))}
       </div>
     </>
+  );
+}
+
+/** Sandi awal acak — huruf/angka campur, cukup panjang untuk diketikkan sekali
+ * lalu diganti pengguna sendiri saat login pertama (belum ada alur ganti-sandi
+ * paksa, jadi ini nilai awal, bukan sandi permanen yang harus dihafal admin). */
+function randomPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+}
+
+function AddUser({ roles, onCancel, onCreated }: {
+  roles: WmsRole[]; onCancel: () => void; onCreated: () => void;
+}) {
+  const [f, setF] = useState({
+    email: '', password: randomPassword(), fullName: '', employeeNo: '', department: '',
+    role: 'OPERATOR' as string, wmsRoleId: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ email: string; password: string } | null>(null);
+  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  if (done) {
+    return (
+      <div style={{ ...s.card, maxWidth: 480, borderTop: `3px solid ${C.neo}` }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.neo }}>Pengguna dibuat</div>
+        <p style={{ fontSize: 12.5, color: C.slate, lineHeight: 1.5 }}>
+          Sampaikan kredensial ini ke pengguna secara langsung — tidak dikirim lewat email dan
+          tidak ditampilkan lagi setelah ini.
+        </p>
+        <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontFamily: MONO, fontSize: 13 }}>
+          <dt style={{ color: C.slate }}>Email</dt><dd>{done.email}</dd>
+          <dt style={{ color: C.slate }}>Sandi</dt><dd style={{ fontWeight: 700 }}>{done.password}</dd>
+        </dl>
+        <button style={{ ...s.btn, marginTop: 14 }} onClick={onCreated}>Selesai</button>
+      </div>
+    );
+  }
+
+  const canSubmit = f.email.includes('@') && f.password.length >= 6 && f.fullName.trim().length > 0;
+
+  async function submit() {
+    setBusy(true); setErr(null);
+    try {
+      const input: NewUserInput = {
+        email: f.email.trim(), password: f.password, fullName: f.fullName.trim(),
+        employeeNo: f.employeeNo.trim() || undefined, department: f.department.trim() || undefined,
+        role: f.role, wmsRoleId: f.wmsRoleId || null,
+      };
+      const created = await createUser(input);
+      setDone({ email: created.email, password: f.password });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ ...s.card, maxWidth: 480, borderTop: `3px solid ${C.neo}` }}>
+      <div style={s.rowBetween}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Pengguna baru</div>
+        <button style={{ ...s.btnGhost, padding: '5px 10px', fontSize: 11 }} onClick={onCancel}>Batal</button>
+      </div>
+
+      <label style={s.label} htmlFor="nu-name">Nama lengkap</label>
+      <input id="nu-name" style={s.input} value={f.fullName} onChange={(e) => set('fullName', e.target.value)} />
+
+      <label style={s.label} htmlFor="nu-email">Email</label>
+      <input id="nu-email" style={s.input} type="email" value={f.email} onChange={(e) => set('email', e.target.value)} />
+
+      <label style={s.label} htmlFor="nu-pass">Sandi awal (minimal 6 karakter)</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input id="nu-pass" style={s.input} value={f.password} onChange={(e) => set('password', e.target.value)} />
+        <button type="button" style={s.btnGhost} onClick={() => set('password', randomPassword())}>Acak</button>
+      </div>
+
+      <div style={s.grid2}>
+        <div>
+          <label style={s.label} htmlFor="nu-emp">No. karyawan (opsional)</label>
+          <input id="nu-emp" style={s.input} value={f.employeeNo} onChange={(e) => set('employeeNo', e.target.value)} />
+        </div>
+        <div>
+          <label style={s.label} htmlFor="nu-dept">Departemen (opsional)</label>
+          <input id="nu-dept" style={s.input} value={f.department} onChange={(e) => set('department', e.target.value)} />
+        </div>
+      </div>
+
+      <div style={s.grid2}>
+        <div>
+          <label style={s.label} htmlFor="nu-role">Peran aplikasi</label>
+          <select id="nu-role" style={s.input} value={f.role} onChange={(e) => set('role', e.target.value)}>
+            {APP_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={s.label} htmlFor="nu-wms">Peran WMS (opsional)</label>
+          <select id="nu-wms" style={s.input} value={f.wmsRoleId} onChange={(e) => set('wmsRoleId', e.target.value)}>
+            <option value="">— belum ditetapkan —</option>
+            {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {err && <div style={s.err}>{err}</div>}
+
+      <button style={{ ...s.btn, opacity: busy || !canSubmit ? 0.5 : 1 }} disabled={busy || !canSubmit}
+              onClick={() => void submit()}>
+        {busy ? 'Membuat…' : 'Buat pengguna'}
+      </button>
+    </div>
   );
 }
 

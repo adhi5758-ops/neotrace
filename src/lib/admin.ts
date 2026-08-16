@@ -69,3 +69,32 @@ export async function setUserActive(userId: string, isActive: boolean) {
   const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', userId);
   if (error) throw error;
 }
+
+export interface NewUserInput {
+  email: string;
+  password: string;
+  fullName: string;
+  employeeNo?: string;
+  department?: string;
+  role: string;
+  wmsRoleId?: string | null;
+}
+
+/**
+ * Membuat akun Supabase Auth + baris profiles sekaligus, lewat edge function
+ * `admin-create-user` — auth.admin.createUser() butuh service role key, yang
+ * tidak boleh ada di bundle klien. Fungsi itu sendiri memeriksa ulang bahwa
+ * pemanggil login sebagai ADMIN aktif sebelum menyentuh service role client.
+ */
+export async function createUser(input: NewUserInput): Promise<{ id: string; email: string }> {
+  const { data, error } = await supabase.functions.invoke('admin-create-user', { body: input });
+  if (error) {
+    // FunctionsHttpError menyimpan Response asli di .context — bodinya
+    // JSON {error: "..."} dari edge function, bukan pesan generik fetch
+    const context = (error as { context?: Response }).context;
+    const detail = context ? ((await context.json().catch(() => null)) as { error?: string } | null)?.error : undefined;
+    throw new Error(detail ?? error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data as { id: string; email: string };
+}
