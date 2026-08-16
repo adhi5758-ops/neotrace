@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix and Excel-upload master data — see §6d. All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
+**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix and Excel-upload master data (§6d), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -364,6 +364,61 @@ attempt once the dynamic-import fix landed.
 
 ---
 
+## 6e. Phone/desktop layout split (16 Aug 2026)
+
+Every screen used the same phone-first container (`s.page`, 760px max-width) regardless of
+viewport — fine for the three screens operators actually scan with (Pindai label, Put-away,
+Pick list), wasteful everywhere else once a supervisor/QA/planner opens the app on a laptop.
+
+**Design.** `src/ui.ts` gained three tokens:
+- `s.pageWide` (1400px max-width) — for the dashboard/console screens: Beranda, Gudang hub,
+  Staging, Konsol gudang, Gelombang, Analitik, QC, Produksi, Telusur, Notifikasi, Monitor, Admin.
+- `s.pageForm` (900px max-width) — for Terima (a long form screen; wide-open edge-to-edge
+  inputs read worse than a comfortably centered column, unlike a list of independent cards).
+- `s.cardGrid` — `grid-template-columns: repeat(auto-fit, minmax(300px, 1fr))`. Every screen's
+  card lists (queues, KPI tiles, occupancy boards, permission matrices, etc.) now wrap in this
+  instead of stacking full-width — more rows fit on screen without inventing per-screen
+  breakpoints. **Use `auto-fit`, not `auto-fill`**, for this pattern: `auto-fill` leaves a
+  trailing empty-track gap when a section has fewer cards than would fill a row (found live —
+  Admin's REPORTING category with only 2 modules left one card at 330px with dead space next to
+  it instead of stretching to fill the row); `auto-fit` collapses empty tracks so existing cards
+  stretch to fill.
+- **Pindai label, Put-away, and Pick list keep `s.page` untouched** — verified their content
+  container stays exactly 760px even at a 1440px browser width. These are the phone-in-hand
+  scanning flows; widening them was explicitly out of scope.
+
+**Navigation.** A new `DeskNav` in `App.tsx` (Beranda · Gudang · QC · Produksi · Telusur ·
+Analitik) shows above 900px width, replacing the thumb-sized bottom tab bar, which hides at
+that width. Both are always in the DOM; a CSS media query in `index.html` toggles which one
+is visible. **Gotcha:** both navs set `display` via inline React `style`, and inline styles
+beat a plain stylesheet rule regardless of selector specificity — the media query needed
+`!important` on both `display` declarations or it silently did nothing (caught live: the
+bottom nav stayed `display: grid` at 1440px until this was added).
+
+**Bug found and fixed during verification — `/notifikasi` crashed with a white screen.**
+`subscribeNotifications()` (`lib/api.ts`) always opened a Supabase Realtime channel named
+`'notif'`. `App.tsx` subscribes once globally (for the header's unread badge) and
+`Notifications.tsx` subscribes again on its own mount (to refresh its list) — two independent
+subscriptions to the *same* channel topic. Supabase's client throws ("cannot add
+`postgres_changes` callbacks for realtime:notif after `subscribe()`") the moment the second
+subscription tries to attach a listener to a topic the first already subscribed, which crashes
+the whole `<App>` tree since nothing catches it. Confirmed this was **not** a React 18
+StrictMode dev-only artifact — it reproduced identically against a `vite build` + `vite preview`
+production bundle with a real login. Fixed by giving each call a unique topic
+(`` `notif-${Math.random().toString(36).slice(2)}` ``); both subscriptions now get their own
+channel and neither collides. This bug predates this session (the subscription code itself
+wasn't touched) and was purely a byproduct of two different files subscribing independently —
+worth knowing if a third screen ever adds its own `subscribeNotifications()` call.
+
+Verified live: every non-phone screen at 1440px width shows `pageWide`/`pageForm` containers and
+populated `cardGrid`s (checked Beranda, Konsol gudang, QC, Produksi, Telusur, Admin incl. its
+Hak akses tab's category grouping); Pindai/Put-away/Pick list confirmed still 760px at the same
+width; mobile viewport (375px) confirmed bottom nav visible, desktop nav hidden, grids collapse
+to one column; `/notifikasi` confirmed non-crashing on both `localhost:5173` and the deployed
+`neotrace-web.vercel.app`. `npm run build` and `npm run check` both clean.
+
+---
+
 ## 7. Verification done
 
 - `npx tsc -b` — clean
@@ -583,6 +638,10 @@ Dev server is registered in the parent `.claude/launch.json` as **`neotrace`**
 - Status colours go through `pill()` / `lotTone()` in `src/ui.ts`, not ad-hoc hex.
 - Accent rules are `borderTop`, never a thick left border (the project design hook flags side-tabs).
 - Files stay under 500 lines (project CLAUDE.md).
+- **New screens: phone-scanning flows use `s.page`; everything else uses `s.pageWide` (or
+  `s.pageForm` for long forms) with card lists wrapped in `s.cardGrid`** (§6e). Don't add a new
+  screen with the old bare `s.page` unless it's genuinely another walk-and-scan operator flow
+  like Pindai/Put-away/Pick list.
 
 ---
 
