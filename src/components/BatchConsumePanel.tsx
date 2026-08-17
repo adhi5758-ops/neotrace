@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import QrScanner from './QrScanner';
 import {
-  suggestLotsFefo, consumeLot, closeBatch, parseDbError,
+  suggestLotsFefo, consumeLot, closeBatch, logScrap, parseDbError,
   type FefoSuggestion, type ScanResult,
 } from '../lib/api';
 import { enqueue, pendingCount, startAutoFlush } from '../lib/offlineQueue';
@@ -34,6 +34,13 @@ export default function BatchConsumePanel({
   const [queued, setQueued] = useState(0);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  const [scrapping, setScrapping] = useState(false);
+  const [scrapScan, setScrapScan] = useState<ScanResult | null>(null);
+  const [scrapQty, setScrapQty] = useState('');
+  const [scrapReason, setScrapReason] = useState('');
+  const [scrapBusy, setScrapBusy] = useState(false);
+  const [scrapDone, setScrapDone] = useState<string | null>(null);
 
   useEffect(() => {
     void suggestLotsFefo(itemId, qtyNeeded).then(setSuggestions).catch(() => setSuggestions([]));
@@ -89,6 +96,23 @@ export default function BatchConsumePanel({
     else setOverride({ scan: r, reason: '' });   // butuh alasan sebelum lanjut
   }
 
+  async function submitScrap() {
+    if (!scrapScan?.hu_id) return;
+    setScrapBusy(true);
+    try {
+      await logScrap(batchId, scrapScan.hu_id, Number(scrapQty) || 0, scrapReason.trim());
+      setScrapDone(`${scrapQty} ${scrapScan.uom} ${scrapScan.item_name} dicatat rusak.`);
+      setScrapScan(null);
+      setScrapQty('');
+      setScrapReason('');
+    } catch (e) {
+      const { message } = e as { message?: string };
+      setMsg(message || parseDbError(e).message);
+    } finally {
+      setScrapBusy(false);
+    }
+  }
+
   const totalTaken = confirmed.reduce((a, c) => a + c.qty, 0);
   const remaining = Math.max(0, qtyNeeded - totalTaken);
 
@@ -121,9 +145,17 @@ export default function BatchConsumePanel({
       })}
 
       {msg && <div style={s.msg}>{msg}</div>}
+      {scrapDone && <div style={{ ...s.msg, color: C.amber, borderColor: C.amber }}>{scrapDone}</div>}
 
       <button style={s.cta} disabled={busy || remaining === 0} onClick={() => setScanning(true)}>
         {remaining === 0 ? 'Kebutuhan bahan terpenuhi' : 'Pindai kemasan'}
+      </button>
+      <button
+        style={{ ...s.cta, marginTop: 8, background: 'transparent', color: C.chili, border: `1px solid ${C.chili}` }}
+        disabled={scrapBusy}
+        onClick={() => setScrapping(true)}
+      >
+        Catat bahan rusak / tumpah
       </button>
 
       {scanning && (
@@ -134,6 +166,52 @@ export default function BatchConsumePanel({
           onAccept={onScanAccepted}
           onClose={() => setScanning(false)}
         />
+      )}
+
+      {scrapping && (
+        <QrScanner
+          action="SCRAP"
+          locationId={locationId}
+          title="Pindai kemasan yang rusak"
+          onAccept={(r) => { setScrapping(false); setScrapScan(r); setScrapQty(String(r.qty_remaining ?? 0)); }}
+          onClose={() => setScrapping(false)}
+        />
+      )}
+
+      {scrapScan && (
+        <div style={s.modalWrap} role="alertdialog" aria-modal="true">
+          <div style={s.modal}>
+            <div style={{ ...s.modalTitle, color: C.chili }}>Catat scrap — {scrapScan.item_name}</div>
+            <p style={s.modalBody}>
+              Kemasan <b>{scrapScan.hu_code}</b> · lot {scrapScan.lot_code} · sisa {scrapScan.qty_remaining} {scrapScan.uom}
+            </p>
+            <label style={s.label} htmlFor="scrap-qty">Jumlah rusak ({scrapScan.uom})</label>
+            <input id="scrap-qty" style={s.textarea} type="number" inputMode="decimal" step="0.001"
+                   value={scrapQty} onChange={(e) => setScrapQty(e.target.value)} />
+            <label style={s.label} htmlFor="scrap-reason">Alasan (wajib)</label>
+            <textarea
+              id="scrap-reason"
+              style={s.textarea}
+              rows={2}
+              value={scrapReason}
+              placeholder="Contoh: kemasan sobek saat dipindahkan, isi tumpah ke lantai"
+              onChange={(e) => setScrapReason(e.target.value)}
+            />
+            <div style={s.modalBtns}>
+              <button style={{ ...s.cta, background: 'transparent', color: C.ink, border: `1px solid ${C.line}` }}
+                      onClick={() => setScrapScan(null)}>
+                Batal
+              </button>
+              <button
+                style={{ ...s.cta, background: C.chili }}
+                disabled={scrapBusy || Number(scrapQty) <= 0 || scrapReason.trim().length < 8}
+                onClick={() => void submitScrap()}
+              >
+                {scrapBusy ? 'Menyimpan…' : 'Catat scrap'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {override && (
@@ -172,16 +250,17 @@ export default function BatchConsumePanel({
   );
 }
 
-/** Contoh penutupan batch — memicu perhitungan yield & HPP di database. */
+/** Contoh penutupan batch — memicu perhitungan yield & HPP di database, sekaligus HU + tugas put-away produk jadi. */
 export async function handleCloseBatch(
-  batchId: string, itemId: string, actualQty: number, rejectQty: number, shelfLifeDays: number
+  batchId: string, itemId: string, actualQty: number, rejectQty: number, shelfLifeDays: number, uom: string
 ) {
-  const cost = await closeBatch({ batchId, itemId, actualQty, rejectQty, shelfLifeDays });
+  const { cost, lotCode, expiryDate, handlingUnit } = await closeBatch({ batchId, itemId, actualQty, rejectQty, shelfLifeDays, uom });
   return {
     yieldPct: cost.yield_pct as number,
     actualCostPerUom: cost.actual_cost_per_uom as number,
     standardCost: cost.standard_cost as number,
     variancePct: cost.variance_pct as number,
+    lotCode, expiryDate, handlingUnit,
   };
 }
 
@@ -194,6 +273,7 @@ const s: Record<string, React.CSSProperties> = {
   sub: { fontSize: 12, color: C.slate, marginTop: 3, fontFamily: 'monospace' },
   badge: { fontSize: 10, fontFamily: 'monospace', color: C.amber, border: `1px solid ${C.amber}`, padding: '3px 6px', whiteSpace: 'nowrap' },
   secHead: { fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: C.slate, fontFamily: 'monospace', marginBottom: 8 },
+  label: { display: 'block', fontSize: 11, color: C.slate, fontFamily: 'monospace', margin: '10px 0 4px' },
   row: { display: 'flex', gap: 11, alignItems: 'center', background: '#fff', border: `1px solid ${C.line}`, padding: '11px 13px', marginBottom: 8 },
   tick: { width: 21, height: 21, border: `1.5px solid ${C.slate}`, display: 'grid', placeItems: 'center', fontSize: 12, color: C.neo, fontWeight: 700, flex: 'none' },
   lot: { fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: C.ink },

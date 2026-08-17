@@ -380,12 +380,28 @@ export interface CloseBatchInput {
   actualQty: number;
   rejectQty: number;
   itemId: string;
+  uom: string;
   shelfLifeDays?: number;
   locationId?: string;
 }
 
-/** Tutup batch: buat lot produk jadi, catat hasil, kembalikan yield & HPP. */
-export async function closeBatch(input: CloseBatchInput) {
+export interface CloseBatchResult {
+  cost: Record<string, unknown>;
+  lotCode: string;
+  expiryDate: string | null;
+  handlingUnit: { id: string; hu_code: string; qr_token: string };
+}
+
+/**
+ * Tutup batch: buat lot produk jadi, catat hasil, kembalikan yield & HPP.
+ *
+ * Sebelumnya berhenti di sini — lot produk jadi lahir tanpa handling unit,
+ * jadi tidak pernah bisa dicetak labelnya atau lewat put-away terarah
+ * (create_putaway_tasks cuma memproses HU berstatus ACTIVE). Sekarang satu
+ * HU dibuat untuk seluruh hasil batch dan tugas put-away langsung terbit,
+ * menutup celah traceability yang sama persis dipakai untuk bahan baku.
+ */
+export async function closeBatch(input: CloseBatchInput): Promise<CloseBatchResult> {
   const { data: lotCode, error: e1 } = await supabase.rpc('next_doc_no', { p_prefix: 'LOT' });
   if (e1) throw e1;
 
@@ -425,11 +441,31 @@ export async function closeBatch(input: CloseBatchInput) {
     item_id: input.itemId,
     lot_id: outLot.id,
     qty: input.actualQty,
-    uom: 'KG',
+    uom: input.uom,
     to_location_id: input.locationId ?? null,
     doc_type: 'BATCH',
     doc_id: input.batchId,
   });
+
+  const { data: huCode, error: e5 } = await supabase.rpc('next_doc_no', { p_prefix: 'NF-HU' });
+  if (e5) throw e5;
+  const { data: hu, error: e6 } = await supabase
+    .from('handling_units')
+    .insert({
+      hu_code: huCode,
+      lot_id: outLot.id,
+      package_type: 'PALLET',
+      qty_initial: input.actualQty,
+      qty_remaining: input.actualQty,
+      uom: input.uom,
+      location_id: input.locationId ?? null,
+    })
+    .select('id, hu_code, qr_token')
+    .single();
+  if (e6) throw e6;
+
+  const { error: e7 } = await supabase.rpc('create_putaway_tasks', { p_lot_id: outLot.id });
+  if (e7) throw e7;
 
   const { data: cost, error: e4 } = await supabase
     .from('v_batch_cost')
@@ -437,7 +473,75 @@ export async function closeBatch(input: CloseBatchInput) {
     .eq('batch_id', input.batchId)
     .single();
   if (e4) throw e4;
-  return cost;
+  return { cost, lotCode, expiryDate: expiry, handlingUnit: hu };
+}
+
+/** Catat bahan baku rusak/tumpah saat produksi berjalan — bukan cuma reject produk jadi di akhir batch. */
+export async function logScrap(batchId: string, huId: string, qty: number, reason: string) {
+  const { error } = await supabase.rpc('log_scrap', {
+    p_batch_id: batchId, p_hu_id: huId, p_qty: qty, p_reason: reason,
+  });
+  if (error) throw parseDbError(error);
+}
+
+/* --------------------------------------------------------- outbound (DO) */
+
+export interface DoLineInput { itemId: string; qty: number; uom: string }
+export interface CreateDoInput {
+  customerId: string;
+  soNo?: string;
+  shipToAddress?: string;
+  remarks?: string;
+  lines: DoLineInput[];
+}
+
+/**
+ * Buat delivery order berstatus DRAFT dengan baris "pesanan" (item + qty,
+ * lot_id kosong). FEFO baru menetapkan lot saat generatePickListFromDo()
+ * dijalankan — pola yang sama dipakai batch produksi (formula → pick list).
+ */
+export async function createDeliveryOrder(input: CreateDoInput): Promise<{ id: string; doc_no: string }> {
+  if (!input.lines.length) throw new Error('DO butuh minimal satu baris item.');
+  const { data: docNo, error: e1 } = await supabase.rpc('next_doc_no', { p_prefix: 'DO' });
+  if (e1) throw parseDbError(e1);
+
+  const { data: order, error: e2 } = await supabase
+    .from('delivery_orders')
+    .insert({
+      doc_no: docNo,
+      customer_id: input.customerId,
+      so_no: input.soNo || null,
+      ship_to_address: input.shipToAddress || null,
+      remarks: input.remarks || null,
+    })
+    .select('id, doc_no')
+    .single();
+  if (e2) throw parseDbError(e2);
+
+  const { error: e3 } = await supabase.from('delivery_order_lines').insert(
+    input.lines.map((l) => ({ do_id: order.id, item_id: l.itemId, qty: l.qty, uom: l.uom }))
+  );
+  if (e3) throw parseDbError(e3);
+
+  return order;
+}
+
+export interface ShipDoInput {
+  doId: string;
+  transporterId?: string;
+  vehicleNo?: string;
+  driverName?: string;
+}
+
+/** Kunci DO: pindahkan baris pick yang sudah selesai jadi baris kiriman aktual, tandai kemasan SHIPPED. */
+export async function shipDeliveryOrder(input: ShipDoInput) {
+  const { error } = await supabase.rpc('ship_delivery_order', {
+    p_do_id: input.doId,
+    p_transporter_id: input.transporterId || null,
+    p_vehicle_no: input.vehicleNo || null,
+    p_driver_name: input.driverName || null,
+  });
+  if (error) throw parseDbError(error);
 }
 
 /* -------------------------------------------------------------- telusur */

@@ -8,6 +8,7 @@ const TILES = [
   { to: '/gudang', title: 'Gudang', hint: 'Terima, put-away, picking, staging' },
   { to: '/qc', title: 'QC hold', hint: 'Sampel, hasil uji, release lot' },
   { to: '/produksi', title: 'Produksi', hint: 'Batch, pick list, saran FEFO, CCP, HPP' },
+  { to: '/pengiriman', title: 'Pengiriman', hint: 'Delivery order, pick outbound, tandai terkirim' },
   { to: '/telusur', title: 'Telusur', hint: 'Dua arah: lot → produk, batch → bahan' },
   { to: '/analitik', title: 'Analitik', hint: 'Perputaran, KPI, peramalan, sinkronisasi ERP' },
 ];

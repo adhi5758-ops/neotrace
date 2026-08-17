@@ -15,6 +15,7 @@ export interface PickList {
   doc_no: string;
   source_type: string;
   batch_id: string | null;
+  do_id: string | null;
   staging_location_id: string | null;
   assigned_to: string | null;
   status: PickStatus;
@@ -22,6 +23,7 @@ export interface PickList {
   completed_at: string | null;
   created_at: string;
   production_batches: { batch_no: string; target_qty: number; items: { name: string } | null } | null;
+  delivery_orders: { doc_no: string; partners: { name: string } | null } | null;
 }
 
 export interface PickLine {
@@ -46,7 +48,9 @@ export interface PickLine {
 export async function listPickLists(onlyOpen = true): Promise<PickList[]> {
   let q = supabase
     .from('pick_lists')
-    .select('id, doc_no, source_type, batch_id, staging_location_id, assigned_to, status, started_at, completed_at, created_at, production_batches(batch_no, target_qty, items(name))')
+    .select(`id, doc_no, source_type, batch_id, do_id, staging_location_id, assigned_to, status, started_at, completed_at, created_at,
+      production_batches(batch_no, target_qty, items(name)),
+      delivery_orders(doc_no, partners!delivery_orders_customer_id_fkey(name))`)
     .order('created_at', { ascending: false });
   if (onlyOpen) q = q.neq('status', 'COMPLETED').neq('status', 'CANCELLED');
   const { data, error } = await q;
@@ -94,6 +98,13 @@ export async function pickedLines(pickListId: string) {
 /** Terbitkan pick list dari formula batch. Menolak bila batch sudah punya satu. */
 export async function generatePickList(batchId: string): Promise<string> {
   const { data, error } = await supabase.rpc('generate_pick_list_from_batch', { p_batch_id: batchId });
+  if (error) throw parseDbError(error);
+  return data as string;
+}
+
+/** Terbitkan pick list dari delivery order (outbound). Cermin generatePickList untuk batch. */
+export async function generatePickListFromDo(doId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('generate_pick_list_from_do', { p_do_id: doId });
   if (error) throw parseDbError(error);
   return data as string;
 }

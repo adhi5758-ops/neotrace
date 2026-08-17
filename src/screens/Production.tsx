@@ -12,6 +12,7 @@ import { recordCcp, consumeLot, consumedHuIds, createBatch, parseDbError } from 
 import { listBatches, batchRequirements, ccpDefinitions, listItems, listFormulas, listPartners,
   type Batch, type CcpDefinition, type Item, type Formula, type Partner } from '../lib/queries';
 import { listPickLists, generatePickList, pickedLines, type PickList } from '../lib/picking';
+import { printLabels } from '../lib/labels';
 import { C, MONO, s, pill } from '../ui';
 
 type Requirement = { itemId: string; itemName: string; qtyNeeded: number; uom: string };
@@ -225,7 +226,29 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
             <dd style={{ color: bad ? C.amber : C.neo }}>{fmt(result.variancePct)} %</dd>
           </dl>
         </div>
-        <button style={{ ...s.btn, maxWidth: 320 }} onClick={onBack}>Selesai</button>
+
+        <div style={{ ...s.card, maxWidth: 480, borderTop: `3px solid ${C.amber}` }}>
+          <div style={s.code}>{result.handlingUnit.hu_code} · lot {result.lotCode}</div>
+          <div style={s.meta}>
+            Tugas put-away sudah terbit — cek layar Put-away untuk menaruhnya ke rak produk jadi.
+          </div>
+        </div>
+        <button
+          style={{ ...s.btnGhost, maxWidth: 480, marginTop: 10 }}
+          onClick={() => void printLabels([{
+            hu_code: result.handlingUnit.hu_code,
+            qr_token: result.handlingUnit.qr_token,
+            lot_code: result.lotCode,
+            item_name: batch.items?.name ?? '',
+            qty: Number(form.actualQty),
+            uom: batch.items?.base_uom ?? '',
+            expiry_date: result.expiryDate,
+          }]).catch((e) => setErr((e as Error).message))}
+        >
+          Cetak label kemasan
+        </button>
+
+        <button style={{ ...s.btn, maxWidth: 320, marginTop: 10 }} onClick={onBack}>Selesai</button>
       </div>
     );
   }
@@ -286,7 +309,7 @@ function BatchDetail({ batch, onBack }: { batch: Batch; onBack: () => void }) {
           setErr(null);
           handleCloseBatch(
             batch.id, batch.item_id, Number(form.actualQty), Number(form.rejectQty) || 0,
-            batch.items?.shelf_life_days ?? 0
+            batch.items?.shelf_life_days ?? 0, batch.items?.base_uom ?? 'KG'
           )
             .then(setResult)
             .catch((e) => setErr(parseDbError(e).message))

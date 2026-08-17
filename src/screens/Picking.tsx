@@ -58,8 +58,10 @@ export default function Picking() {
             <span style={pill(toneOf(p.status))}>{p.status}</span>
           </div>
           <div style={s.meta}>
-            {p.production_batches?.batch_no ?? '—'} · {p.production_batches?.items?.name ?? '—'}
-            {p.production_batches ? ` · target ${p.production_batches.target_qty}` : ''}
+            {p.source_type === 'DO'
+              ? `${p.delivery_orders?.doc_no ?? '—'} · ${p.delivery_orders?.partners?.name ?? '—'} · kirim`
+              : `${p.production_batches?.batch_no ?? '—'} · ${p.production_batches?.items?.name ?? '—'}` +
+                (p.production_batches ? ` · target ${p.production_batches.target_qty}` : '')}
           </div>
         </button>
       ))}
@@ -116,7 +118,8 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
       </button>
       <h1 style={s.h1}>{list.doc_no}</h1>
       <p style={s.sub}>
-        {list.production_batches?.batch_no ?? '—'} · {done}/{lines.length} selesai
+        {list.source_type === 'DO' ? (list.delivery_orders?.doc_no ?? '—') : (list.production_batches?.batch_no ?? '—')}
+        {' '}· {done}/{lines.length} selesai
         {short > 0 ? ` · ${short} kurang` : ''}
       </p>
       {conflict && <SessionConflict session={conflict} onResolve={resolveConflict} />}

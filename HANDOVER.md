@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 17 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix, Excel-upload master data, and new-user creation (§6d, §6f), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). **Picking and staging (previously gap 2, "untested against live data") are now walked end-to-end — 20 transaction scenarios across GRN/QC/put-away/picking/staging/production/CCP/batch-close/trace, 9 real bugs found and fixed, see §6g.** Put-away was smoke-tested earlier with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7).
+**Updated:** 17 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix, Excel-upload master data, and new-user creation (§6d, §6f), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). **Picking and staging (previously gap 2, "untested against live data") are now walked end-to-end — 20 transaction scenarios across GRN/QC/put-away/picking/staging/production/CCP/batch-close/trace, 9 real bugs found and fixed, see §6g.** A "Fase 5" delta closes three real traceability gaps found via an external WMS-workflow audit: **finished goods never got a handling unit or put-away task** (now they do, §6i), **no raw-material scrap logging** (now exists, §6i), and **no outbound side at all** — sales order/DO creation, DO-sourced picking, shipping, and CSV import/export are all new (§6i). Batch creation also got a UI form for the first time (§6h) — Waves/pick-list generation had no way to get a usable batch before this. Put-away was smoke-tested earlier with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7).
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -555,6 +555,91 @@ was cleaned up this time (unlike the isolated one-off test rows from earlier ses
 half is resolved; wave-picking (`generate_wave`, in-wave `confirm_pick`) and the ERP outbox worker
 remain genuinely unexercised — no second/third batch was left free to form a wave with in this
 pass. Added below as gap 20.
+
+---
+
+## 6h. Batch creation form — Waves/Picking had no way to get a batch to work with (17 Aug 2026)
+
+`Waves.tsx` always showed "Tidak ada batch yang bisa digelombangkan. Batch harus punya formula dan
+belum masuk gelombang lain" because **there was no UI path to create a `production_batches` row at
+all** — every batch in the staging DB had been inserted by hand via SQL. Added a "+ Rencanakan
+batch baru" form on `Produksi`: pick a `FINISHED` item, its active formula loads from the new
+`listFormulas(itemId)` query, set target qty (+ optional line/customer/notes), submit via
+`createBatch()` (`next_doc_no('BTC')` + insert). Verified live: created `BTC-2608-001`, confirmed
+it appears under "Batch siap dijadwalkan" in Bentuk Gelombang, deleted the test row afterward.
+
+## 6i. FG handling-unit + put-away, raw-material scrap logging, outbound (sales order/DO) + CSV
+     import/export (17 Aug 2026)
+
+A user-supplied "ideal WMS workflow" spec (PO→receive→putaway, BOM→pick→assemble→scrap→FG putaway,
+SO→pick→pack→ship, CSV at every phase boundary) was audited against the actual app. Findings: solid
+on inbound + internal production, but **finished goods were never put away** (`closeBatch()` made a
+`lots` row and nothing else — no handling unit, so no QR to print and no putaway task could ever be
+generated for it), **no raw-material scrap logging** existed (only batch-level `reject_qty` on the
+*output*), and **there was no outbound side at all** — `delivery_orders`/`delivery_order_lines`
+existed in the schema but nothing ever wrote to them, no DO-sourced pick list generator existed, and
+there was no CSV import/export anywhere except Admin's Excel master-data upload. Built all three,
+ranked by traceability impact, plus CSV import/export woven into the DO screen since the spec asked
+for it explicitly.
+
+**Schema (`neotrace_phase5_delta.sql`):**
+- `delivery_order_lines.lot_id` — dropped `NOT NULL`. A DO line now starts as "ordered" (item + qty,
+  `lot_id` null) at DO-creation time; FEFO only assigns a lot once `generate_pick_list_from_do()`
+  runs — the same order-first-fulfill-later shape production batches already use with formulas.
+- `production_scrap` table + `log_scrap(batch_id, hu_id, qty, reason)` — decrements the HU through a
+  real `stock_movements` row (type `'SCRAP'`, already a valid `movement_type` value, unused until
+  now) rather than a direct `UPDATE`, so it goes through the same ledger as every other quantity
+  change, then marks the HU `'SCRAPPED'` specifically (not just the generic `'EMPTY'` the movement
+  trigger would set) if it hit zero.
+- `generate_pick_list_from_do(do_id)` — mirrors `generate_pick_list_from_batch`, sourcing requested
+  qty from `delivery_order_lines` instead of `formula_lines`.
+- `ship_delivery_order(do_id, transporter_id?, vehicle_no?, driver_name?)` — requires the DO's pick
+  list to be `COMPLETED`, replaces the placeholder "ordered" lines with the actual picked
+  lot/HU/qty, flips those HUs to `'SHIPPED'`, posts the DO.
+
+**Bug found live during first test of `ship_delivery_order`:** it originally also inserted a
+`stock_movements` row of type `'SHIPMENT'` with `qty = 0` — intended as a pure ledger/document trace
+with no quantity effect (the real quantity change already happened at pick-confirm time via the
+existing `'PICK'` movement). Failed immediately with `new row for relation "stock_movements"
+violates check constraint "chk_qty_nonzero"` — that constraint only allows `qty = 0` when
+`type = 'TRANSFER'` (the pattern `complete_putaway()` uses), not for an arbitrary type. Removed the
+extra movement entirely; `delivery_order_lines` + the HU's `'SHIPPED'` status already are the
+shipment record, so no second ledger entry was actually needed. Fixed live and in the delta file.
+
+**Backend:** `closeBatch()` now also creates one `handling_units` row for the batch's full output
+qty and calls the existing `create_putaway_tasks()` RPC (from Fase 2 — it only ever required
+`ACTIVE`-status HUs, not a `RELEASED` lot, so this needed no changes) — closing the exact gap the
+Fase 2 putaway flow depended on but FG never reached. `logScrap()`, `createDeliveryOrder()`,
+`shipDeliveryOrder()` added to `api.ts`; `generatePickListFromDo()` added to `picking.ts`;
+`listPickLists()`/`Picking.tsx` extended to display DO-sourced pick lists (source_type `'DO'`)
+alongside batch-sourced ones — no other change needed there, the scan/confirm flow was already
+generic. `lib/excel.ts` gained `exportRows()` (arbitrary rows → CSV/XLSX via the same SheetJS
+`writeFile` already used for Admin's template download).
+
+**Frontend:** scrap logging added inline to `BatchConsumePanel` (a second "Catat bahan rusak /
+tumpah" button next to the pick-scan button, reusing the existing `QrScanner` with the previously
+unused `'SCRAP'` scan action). New `Delivery.tsx` screen (route `/pengiriman`, Home tile, desktop
+nav tab): create a DO manually (repeatable item/qty rows) or import one/many via CSV (grouped by
+`so_no`), issue its pick list, pick through the existing `Picking.tsx` unmodified, then "Tandai
+terkirim" once picking completes; "Ekspor pesanan terkirim" downloads a CSV of all `POSTED` DOs.
+
+**Verified live end to end** (all through the actual UI, not raw SQL): closed `BTC-2608-002` →
+`NF-HU-2608-000009` created, `PTA-2608-0005` putaway task appeared in `/putaway` with a
+system-suggested rack; logged 2.5 kg scrap against `NF-HU-SETUP-002` (confirmed `qty_remaining`
+dropped 7.88→5.38 and `production_scrap` recorded the reason); created `DO-2608-0001`, issued its
+pick list, picked the suggested lot, hit the `chk_qty_nonzero` bug, fixed it live, shipped
+successfully — `delivery_order_lines` ended up with the real picked lot/HU and the HU flipped to
+`SHIPPED`; imported a 1-line CSV order, confirming both the unknown-customer-code rejection path
+and the happy path (`DO-2608-0002` created from CSV). Test DO cleaned up after; the scrap log and
+closed batch were left as dummy data, matching this session's established convention (§6g).
+
+**New/updated Known gaps**: gap 1 (master data placeholder) now also covers customer/item codes
+used by CSV import matching against `partners.code`/`items.code` — real codes need to match
+whatever the customer's actual sales-order export uses. No RLS gap introduced: `production_scrap`
+follows the same `OPERATOR/WAREHOUSE/ADMIN` insert pattern as `batch_consumption`; `delivery_orders`/
+`delivery_order_lines` already had `WAREHOUSE/ADMIN` write policies from the original schema.
+Pack/ship dock scan (a literal barcode scan at the loading dock, separate from "mark shipped") is
+still not built — "Tandai terkirim" is a button, not a scan-gated action; add if UAT asks for it.
 
 ---
 

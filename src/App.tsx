@@ -30,6 +30,7 @@ import Staging from './screens/Staging';
 import WarehouseConsole from './screens/WarehouseConsole';
 import Waves from './screens/Waves';
 import Analytics from './screens/Analytics';
+import Delivery from './screens/Delivery';
 import Monitor from './screens/Monitor';
 import Admin from './screens/Admin';
 
@@ -43,7 +44,7 @@ const TABS = [
 
 // Nav desktop punya satu tab lagi (Analitik) — di HP itu dijangkau lewat
 // Beranda supaya nav bawah tidak sesak, tapi di layar lebar ada ruang.
-const DESKTOP_TABS = [...TABS, { to: '/analitik', label: 'Analitik' }];
+const DESKTOP_TABS = [...TABS, { to: '/pengiriman', label: 'Pengiriman' }, { to: '/analitik', label: 'Analitik' }];
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -101,6 +102,7 @@ export default function App() {
         <Route path="/gelombang" element={<Waves />} />
         <Route path="/staging" element={<Staging />} />
         <Route path="/konsol" element={<WarehouseConsole />} />
+        <Route path="/pengiriman" element={<Delivery />} />
         <Route path="/analitik" element={<Analytics />} />
         <Route path="/qc" element={<Qc role={profile?.role} />} />
         <Route path="/produksi" element={<Production />} />

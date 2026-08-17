@@ -29,3 +29,16 @@ export async function downloadTemplate(
   XLSX.utils.book_append_sheet(wb, ws, 'Template');
   XLSX.writeFile(wb, filename);
 }
+
+/**
+ * Unduh data apa adanya sebagai CSV/Excel — dipakai untuk ekspor "pesanan
+ * terkirim" balik ke ERP. Format ditentukan dari akhiran filename
+ * (SheetJS menulis CSV kalau diakhiri .csv, xlsx kalau .xlsx).
+ */
+export async function exportRows(filename: string, rows: Record<string, unknown>[]) {
+  const XLSX = await import('xlsx');
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, filename);
+}

@@ -153,6 +153,37 @@ export const ccpDefinitions = (itemId: string) =>
       .order('code')
   );
 
+/* --------------------------------------------------------- outbound (DO) */
+
+export interface DeliveryOrderLine {
+  id: string; item_id: string; qty: number; uom: string;
+  lot_id: string | null; items: { code: string; name: string } | null;
+  lots: { lot_code: string } | null;
+}
+export interface DeliveryOrder {
+  id: string; doc_no: string; so_no: string | null; status: string;
+  shipped_at: string | null; ship_to_address: string | null;
+  vehicle_no: string | null; driver_name: string | null; created_at: string;
+  partners: { name: string } | null;
+  delivery_order_lines: DeliveryOrderLine[];
+}
+
+/**
+ * partners!delivery_orders_customer_id_fkey wajib eksplisit — delivery_orders
+ * punya DUA FK ke partners (customer_id, transporter_id); pola yang sama
+ * seperti lots→partners (supplier_id/owner_partner_id) yang ditemukan
+ * sebelumnya, PostgREST menolak menebak arah yang mana.
+ */
+export const listDeliveryOrders = () =>
+  rows<DeliveryOrder>(
+    supabase.from('delivery_orders')
+      .select(`id, doc_no, so_no, status, shipped_at, ship_to_address, vehicle_no, driver_name, created_at,
+        partners!delivery_orders_customer_id_fkey(name),
+        delivery_order_lines(id, item_id, qty, uom, lot_id, items(code, name), lots(lot_code))`)
+      .order('created_at', { ascending: false })
+      .limit(100)
+  );
+
 /* -------------------------------------------------------------- telusur */
 
 export interface LotRow {
