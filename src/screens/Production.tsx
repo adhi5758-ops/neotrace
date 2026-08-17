@@ -8,8 +8,9 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import BatchConsumePanel, { handleCloseBatch } from '../components/BatchConsumePanel';
-import { recordCcp, consumeLot, consumedHuIds, parseDbError } from '../lib/api';
-import { listBatches, batchRequirements, ccpDefinitions, type Batch, type CcpDefinition } from '../lib/queries';
+import { recordCcp, consumeLot, consumedHuIds, createBatch, parseDbError } from '../lib/api';
+import { listBatches, batchRequirements, ccpDefinitions, listItems, listFormulas, listPartners,
+  type Batch, type CcpDefinition, type Item, type Formula, type Partner } from '../lib/queries';
 import { listPickLists, generatePickList, pickedLines, type PickList } from '../lib/picking';
 import { C, MONO, s, pill } from '../ui';
 
@@ -18,15 +19,18 @@ type Requirement = { itemId: string; itemName: string; qtyNeeded: number; uom: s
 export default function Production() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [open, setOpen] = useState<Batch | null>(null);
+  const [showNew, setShowNew] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     listBatches(true)
       .then(setBatches)
       .catch((e) => setErr(parseDbError(e).message))
       .finally(() => setLoading(false));
   }, []);
+  useEffect(load, [load]);
 
   if (open) return <BatchDetail batch={open} onBack={() => setOpen(null)} />;
 
@@ -35,6 +39,17 @@ export default function Production() {
       <h1 style={s.h1}>Produksi</h1>
       <p style={s.sub}>{batches.length} batch berjalan</p>
       {err && <div style={s.err}>{err}</div>}
+
+      {!showNew && (
+        <button style={{ ...s.btn, maxWidth: 320 }} onClick={() => setShowNew(true)}>
+          + Rencanakan batch baru
+        </button>
+      )}
+      {showNew && (
+        <NewBatch onCancel={() => setShowNew(false)}
+                  onCreated={() => { setShowNew(false); load(); }} />
+      )}
+
       {loading && <div style={s.empty}>Memuat batch…</div>}
       {!loading && batches.length === 0 && <div style={s.empty}>Tidak ada batch terbuka.</div>}
 
@@ -54,6 +69,111 @@ export default function Production() {
             </div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ batch baru */
+
+/**
+ * Buat batch PLANNED baru. Sebelum ini tidak ada jalan lain selain insert SQL
+ * manual — akibatnya Bentuk gelombang & Terbitkan pick list selalu buntu
+ * ("batch harus punya formula") karena tidak ada batch berformula yang bisa
+ * dibuat lewat UI sama sekali.
+ */
+function NewBatch({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
+  const [items, setItems] = useState<Item[]>([]);
+  const [customers, setCustomers] = useState<Partner[]>([]);
+  const [formulas, setFormulas] = useState<Formula[]>([]);
+  const [f, setF] = useState({ itemId: '', formulaId: '', targetQty: '', customerId: '', lineCode: '', remarks: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    Promise.all([listItems('FINISHED'), listPartners('CUSTOMER')])
+      .then(([i, c]) => { setItems(i); setCustomers(c); })
+      .catch((e) => setErr(parseDbError(e).message));
+  }, []);
+
+  useEffect(() => {
+    setF((p) => ({ ...p, formulaId: '' }));
+    if (!f.itemId) { setFormulas([]); return; }
+    listFormulas(f.itemId).then(setFormulas).catch((e) => setErr(parseDbError(e).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.itemId]);
+
+  const canSubmit = f.itemId && f.formulaId && Number(f.targetQty) > 0;
+
+  return (
+    <div style={{ ...s.card, maxWidth: 480 }}>
+      <div style={s.secHead}>Batch baru</div>
+      {err && <div style={s.err}>{err}</div>}
+
+      <label style={s.label} htmlFor="nb-item">Produk jadi</label>
+      <select id="nb-item" style={s.input} value={f.itemId} onChange={(e) => set('itemId', e.target.value)}>
+        <option value="">— pilih produk —</option>
+        {items.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.name}</option>)}
+      </select>
+
+      <label style={s.label} htmlFor="nb-formula">Formula</label>
+      <select id="nb-formula" style={s.input} value={f.formulaId} disabled={!f.itemId}
+              onChange={(e) => set('formulaId', e.target.value)}>
+        <option value="">{f.itemId ? '— pilih formula —' : 'pilih produk dulu'}</option>
+        {formulas.map((fm) => (
+          <option key={fm.id} value={fm.id}>v{fm.version} · basis {fm.output_qty} · yield {fm.std_yield_pct}%</option>
+        ))}
+      </select>
+      {f.itemId && formulas.length === 0 && (
+        <div style={{ ...s.meta, color: C.amber, marginTop: 4 }}>Produk ini belum punya formula aktif.</div>
+      )}
+
+      <div style={s.grid2}>
+        <div>
+          <label style={s.label} htmlFor="nb-qty">Target qty</label>
+          <input id="nb-qty" style={s.input} type="number" inputMode="decimal" step="0.001"
+                 value={f.targetQty} onChange={(e) => set('targetQty', e.target.value)} />
+        </div>
+        <div>
+          <label style={s.label} htmlFor="nb-line">Line (opsional)</label>
+          <input id="nb-line" style={s.input} value={f.lineCode} onChange={(e) => set('lineCode', e.target.value)} />
+        </div>
+      </div>
+
+      <label style={s.label} htmlFor="nb-cust">Pelanggan (opsional, untuk batch titipan)</label>
+      <select id="nb-cust" style={s.input} value={f.customerId} onChange={(e) => set('customerId', e.target.value)}>
+        <option value="">—</option>
+        {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+
+      <label style={s.label} htmlFor="nb-remarks">Catatan (opsional)</label>
+      <textarea id="nb-remarks" style={{ ...s.input, resize: 'vertical' }} rows={2}
+                value={f.remarks} onChange={(e) => set('remarks', e.target.value)} />
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button style={{ ...s.btnGhost, flex: 1 }} onClick={onCancel}>Batal</button>
+        <button
+          style={{ ...s.btn, flex: 2, opacity: busy || !canSubmit ? 0.5 : 1 }}
+          disabled={busy || !canSubmit}
+          onClick={() => {
+            setBusy(true);
+            setErr(null);
+            createBatch({
+              itemId: f.itemId,
+              formulaId: f.formulaId,
+              targetQty: Number(f.targetQty),
+              customerId: f.customerId || undefined,
+              lineCode: f.lineCode.trim() || undefined,
+              remarks: f.remarks.trim() || undefined,
+            })
+              .then(onCreated)
+              .catch((e) => setErr(parseDbError(e).message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? 'Menyimpan…' : 'Rencanakan batch'}
+        </button>
       </div>
     </div>
   );

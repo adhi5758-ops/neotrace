@@ -344,6 +344,37 @@ export async function recordCcp(
   return data;
 }
 
+export interface CreateBatchInput {
+  itemId: string;
+  formulaId: string;
+  targetQty: number;
+  customerId?: string;
+  lineCode?: string;
+  remarks?: string;
+}
+
+/** Rencanakan batch baru berstatus PLANNED, siap digelombangkan atau diterbitkan pick list-nya. */
+export async function createBatch(input: CreateBatchInput) {
+  const { data: batchNo, error: e1 } = await supabase.rpc('next_doc_no', { p_prefix: 'BTC' });
+  if (e1) throw parseDbError(e1);
+
+  const { data, error: e2 } = await supabase
+    .from('production_batches')
+    .insert({
+      batch_no: batchNo,
+      item_id: input.itemId,
+      formula_id: input.formulaId,
+      target_qty: input.targetQty,
+      customer_id: input.customerId || null,
+      line_code: input.lineCode || null,
+      remarks: input.remarks || null,
+    })
+    .select('id, batch_no')
+    .single();
+  if (e2) throw parseDbError(e2);
+  return data;
+}
+
 export interface CloseBatchInput {
   batchId: string;
   actualQty: number;

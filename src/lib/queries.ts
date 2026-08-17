@@ -126,6 +126,19 @@ export async function batchRequirements(batch: Batch): Promise<
   }));
 }
 
+export interface Formula {
+  id: string; item_id: string; version: number; output_qty: number; std_yield_pct: number;
+}
+/** Formula aktif untuk satu SKU produk jadi — dipakai form pembuatan batch. */
+export const listFormulas = (itemId: string) =>
+  rows<Formula>(
+    supabase.from('formulas')
+      .select('id, item_id, version, output_qty, std_yield_pct')
+      .eq('item_id', itemId)
+      .eq('is_active', true)
+      .order('version', { ascending: false })
+  );
+
 export interface CcpDefinition {
   id: string; code: string; name: string; parameter: string;
   min_value: number | null; max_value: number | null; uom: string | null; is_critical: boolean;
