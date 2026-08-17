@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import BatchConsumePanel, { handleCloseBatch } from '../components/BatchConsumePanel';
-import { recordCcp, consumeLot, parseDbError } from '../lib/api';
+import { recordCcp, consumeLot, consumedHuIds, parseDbError } from '../lib/api';
 import { listBatches, batchRequirements, ccpDefinitions, type Batch, type CcpDefinition } from '../lib/queries';
 import { listPickLists, generatePickList, pickedLines, type PickList } from '../lib/picking';
 import { C, MONO, s, pill } from '../ui';
@@ -216,16 +216,20 @@ function PickListPanel({ batch }: { batch: Batch }) {
     }
   }
 
-  /** Catat seluruh baris terpetik sebagai konsumsi batch. Sudah tercatat → dilewati. */
+  /** Catat seluruh baris terpetik sebagai konsumsi batch. Sudah tercatat → dilewati
+   * (ditemukan live: komentar ini sempat tidak sesuai kode — pickedLines() tidak
+   * pernah menyaring baris yang sudah tercatat, jadi mengulang tombol ini setelah
+   * kegagalan sebagian akan mencatat baris yang sukses itu dua kali). */
   async function consumeFromPick() {
     if (!list) return;
     setBusy(true);
     setMsg(null);
     try {
-      const picked = await pickedLines(list.id);
+      const [picked, already] = await Promise.all([pickedLines(list.id), consumedHuIds(batch.id)]);
+      const pending = picked.filter((p) => !p.picked_hu_id || !already.has(p.picked_hu_id));
       let ok = 0;
       const failed: string[] = [];
-      for (const p of picked) {
+      for (const p of pending) {
         try {
           await consumeLot({
             batchId: batch.id,

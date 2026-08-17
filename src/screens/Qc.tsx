@@ -83,12 +83,18 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
   }, [row.lot_id]);
   useEffect(load, [load]);
 
-  async function run(fn: () => Promise<unknown>, okText: string) {
+  async function run(
+    fn: () => Promise<{ tone: 'ok' | 'bad'; text: string } | void>,
+    okText: string
+  ) {
     setBusy(true);
     setMsg(null);
     try {
-      await fn();
-      setMsg({ tone: 'ok', text: okText });
+      // fn bisa mengembalikan pesan lebih rinci (mis. jumlah lot/batch yang
+      // terkunci saat recall) — dulu setMsg di dalam fn selalu langsung
+      // ditimpa oleh okText di sini, jadi detailnya tidak pernah terlihat.
+      const detail = await fn();
+      setMsg(detail ?? { tone: 'ok', text: okText });
       load();
     } catch (e) {
       setMsg({ tone: 'bad', text: (e as { message?: string }).message ?? parseDbError(e).message });
@@ -127,7 +133,7 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
         style={{ ...s.btnGhost, width: '100%', maxWidth: 320, marginTop: 10 }}
         disabled={busy}
         onClick={() => void run(
-          () => createIncomingSample(row.lot_id, 0.25, 'KG'),
+          async () => { await createIncomingSample(row.lot_id, 0.25, 'KG'); },
           'Sampel incoming dibuat.'
         )}
       >
@@ -156,7 +162,7 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
                   if (!confirm(`Recall akan mengunci lot ini DAN seluruh produk jadi turunannya. Lanjut?`)) return;
                   void run(async () => {
                     const r = await quarantineCascade(row.lot_id, reason.trim());
-                    setMsg({ tone: 'bad', text: `Recall: ${r.blocked_lots} lot produk jadi dan ${r.held_batches} batch dikunci.` });
+                    return { tone: 'bad' as const, text: `Recall: ${r.blocked_lots} lot produk jadi dan ${r.held_batches} batch dikunci.` };
                   }, 'Recall dijalankan.');
                 }}>
           Recall (kunci turunan)

@@ -44,6 +44,15 @@ export default function Receive() {
   const huCount = Math.max(1, Math.floor(Number(f.huCount) || 1));
   const perHu = qty / huCount;
   const set = (k: keyof typeof f, v: unknown) => setF((p) => ({ ...p, [k]: v }));
+  // functional updater wajib di sini — computed di dalam callback, bukan dari
+  // closure f.allergenIds di luar, supaya dua tap alergen yang berdekatan
+  // (mis. React 18 automatic batching) tidak saling menimpa satu sama lain
+  const toggleAllergen = (id: number) => setF((p) => ({
+    ...p,
+    allergenIds: p.allergenIds.includes(id)
+      ? p.allergenIds.filter((x) => x !== id)
+      : [...p.allergenIds, id],
+  }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -282,9 +291,7 @@ export default function Receive() {
               return (
                 <button
                   key={a.id} type="button"
-                  onClick={() => set('allergenIds', on
-                    ? f.allergenIds.filter((x) => x !== a.id)
-                    : [...f.allergenIds, a.id])}
+                  onClick={() => toggleAllergen(a.id)}
                   style={{
                     ...s.btnGhost, fontFamily: MONO, fontSize: 11, padding: '8px 10px',
                     borderColor: on ? C.amber : C.line, color: on ? C.amber : C.slate,

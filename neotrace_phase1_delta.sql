@@ -73,7 +73,11 @@ create table qc_tests (
 );
 create index idx_test_sample on qc_tests(sample_id);
 
--- evaluasi otomatis PASS/FAIL terhadap spesifikasi numerik
+-- evaluasi otomatis PASS/FAIL terhadap spesifikasi numerik ATAU teks.
+-- Cabang teks ditambahkan setelah ditemukan live (16 Aug 2026): tanpa itu,
+-- uji dengan spec_text saja (organoleptik — aroma, warna, rasa) tidak
+-- pernah punya jalur untuk berubah dari PENDING, sehingga release_lot()
+-- terkunci selamanya untuk lot manapun yang punya uji wajib bertipe teks.
 create or replace function trg_eval_qc_test() returns trigger
 language plpgsql as $$
 begin
@@ -82,6 +86,11 @@ begin
       when (new.spec_min is not null and new.result_num < new.spec_min)
         or (new.spec_max is not null and new.result_num > new.spec_max)
       then 'FAIL'::qc_result else 'PASS'::qc_result end;
+    new.tested_at := coalesce(new.tested_at, now());
+  elsif new.result_text is not null and new.spec_text is not null then
+    new.result := case
+      when lower(trim(new.result_text)) = lower(trim(new.spec_text))
+      then 'PASS'::qc_result else 'FAIL'::qc_result end;
     new.tested_at := coalesce(new.tested_at, now());
   end if;
   return new;

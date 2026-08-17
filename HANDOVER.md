@@ -2,7 +2,7 @@
 
 **Project:** NEOTRACE web app — PT Neopangan Selaras Indonesia (Neofood), Sauce Division
 **Location:** `D:\Pointstar\OneDrive - 明 and Daughters\Team Lead\Testing AI\neotrace-web`
-**Updated:** 16 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix, Excel-upload master data, and new-user creation (§6d, §6f), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). Put-away smoke-tested end-to-end with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7) — zero bugs found in Fase 3/4, but picking and staging (Fase 2) are still unverified live, see gap 2.
+**Updated:** 17 Aug 2026 · **Status:** Fase 1 + Fase 2 + Fase 3 + Fase 4 all live on the staging Supabase project, plus a new Administrator menu (`/admin`) with a WMS role/permission matrix, Excel-upload master data, and new-user creation (§6d, §6f), and a phone/desktop layout split across every screen (§6e). All SQL deltas applied, three cron jobs scheduled, frontend deployed to Vercel with a working SPA rewrite (`vercel.json` — see §6c, this was broken since the first deployment). **Picking and staging (previously gap 2, "untested against live data") are now walked end-to-end — 20 transaction scenarios across GRN/QC/put-away/picking/staging/production/CCP/batch-close/trace, 9 real bugs found and fixed, see §6g.** Put-away was smoke-tested earlier with two real bugs found and fixed (§6a); Waves and all five Analytics tabs smoke-tested clean (§7).
 
 Read this top to bottom before touching code. Everything a new session needs is here.
 
@@ -16,7 +16,7 @@ Read this top to bottom before touching code. Everything a new session needs is 
 | GitHub | [adhi5758-ops/neotrace](https://github.com/adhi5758-ops/neotrace), branch `main`. **Currently public** — contains no real Neofood business data (schema + fictional placeholder seed only), but exposes app architecture and RLS/trigger logic. Consider making it private. |
 | Vercel | [neotrace-web.vercel.app](https://neotrace-web.vercel.app) — project `neotrace-web`, auto-deploys on push to `main` via the GitHub integration (connected directly in the Vercel dashboard, not through the Claude↔Vercel MCP connector — that connector can manage projects but its deployment/list APIs return 403/404 unpredictably; don't waste time on it, use `git push`). Deployment protection is off (public). |
 | Admin login | `adhi5758@gmail.com`, `profiles.role = 'ADMIN'` |
-| Master data | **placeholder only, not real** — 2 suppliers, 1 customer, 3 items (2 raw + 1 finished), 1 formula (2 lines), 2 CCPs, 6 rack locations (A1/A2 × L1/L2, allergen-zoned) + 2 staging areas (from the Fase 2 delta's own seed); can now be bulk-managed via `/admin` → Data induk (§6d) instead of hand-written SQL |
+| Master data | **placeholder only, not real** — 11 items (7 raw + 4 finished, 2 allergen carriers), 10 partners (6 suppliers, 3 customers, 1 consignment client), 15 locations (racks A1/A2 × L1/L2 + one extra allergen rack, allergen-zoned, 3 staging areas), 2 formulas (6 lines total), 4 CCPs, 1 ERP endpoint (`ERP-SANDBOX`, dummy) — expanded in §6g on top of the original Fase 2 seed. Plus a live 20-transaction mockup dataset (3 lots received, released/held/recalled via QC, put away incl. an allergen-rejection test, 3 batches with 2 fully picked+consumed, 1 closed with real HPP) — see §6g for the full list. Can be bulk-managed via `/admin` → Data induk (§6d) instead of hand-written SQL |
 | WMS role/permission matrix | `wms_roles` (6), `wms_modules` (17), `wms_role_permissions` (102) — seeded 1:1 from `wms_roles_permissions_matrix.csv`, editable at `/admin` → Hak akses (§6d) |
 
 To ship a code change: commit locally, then run `git push` from this folder — nobody in this environment has git credentials cached, so pushing always needs a human at the keyboard. Vercel rebuilds automatically. To run SQL against the live project, use the Supabase MCP tools with project id `wwghhyeidmxcwjfyhtgn`.
@@ -467,6 +467,97 @@ dashboard, but it's still ADMIN-gated, deliberately — this isn't a public regi
 
 ---
 
+## 6g. Dummy dataset + 20-transaction live walkthrough — 9 real bugs found and fixed (17 Aug 2026)
+
+Closes gap 2 ("picking and staging are untested against live data") and most of gap 0's picking
+half. Requested: 10 dummy master-data records covering every part of the transaction mockup, plus
+20 transaction types walking every scenario the app models, with manual testing wherever something
+broke. It broke a lot — this staging project had **never actually been walked through discrete
+picking, CCP recording, or batch-close before**, and it showed.
+
+**Dummy data added** (on top of the existing 3 items/3 partners/13 locations): 8 items (own to 11 —
+`RM-BWP-001` Bawang Putih, `RM-CUK-001` Cuka, `RM-GAR-001` Garam, `RM-TEP-001` Tepung Maizena,
+`RM-KEC-001` Kecap Konsentrat *(allergen carrier: SOY+WHEAT)*, `RM-MIN-001` Minyak Sawit,
+`FG-STK-1KG` Saus Tomat, `FG-KCM-600ML` Kecap Manis *(allergen carrier)*), 7 partners (own to 10 —
+4 new suppliers, 2 new customers, 1 `BOTH`-type consignment client), 2 new locations (own to 15 —
+one more allergen-only rack, one more staging area), a second formula (Kecap Manis, 4 lines) with
+2 more CCPs, 4 `item_allergens` links, and 1 `integration_endpoints` row (needed before any ERP
+outbox scenario is even possible — there were zero before this).
+
+**20 scenarios walked live** through the actual UI (not raw SQL) wherever the flow has real
+frontend logic: 3× GRN (own-goods non-allergen, own-goods allergen-tagged, consigned-goods),
+QC sample+release, QC sample+hold-on-FAIL, QC recall/quarantine-cascade, put-away via suggested
+rack, put-away with deviation+reason, put-away allergen-zone **rejection** (deliberately walked
+into the hard block to confirm it still fires), free stock transfer, pick-list generation from
+formula, FEFO-compliant pick, FEFO-override pick, short pick, staging assign, staging release,
+CCP reading in-spec (PASS), CCP reading out-of-spec (FAIL + corrective action), consume-from-pick
+→ close batch → HPP, forward trace, backward trace — plus a consignment-balance spot check.
+
+**Bugs found and fixed, in the order they surfaced:**
+
+1. **QC text-spec tests could never resolve PASS/FAIL.** `trg_eval_qc_test()` only evaluated
+   `result_num` against `spec_min`/`spec_max` — a test with only `spec_text` (any organoleptic
+   check: aroma, colour, appearance) stayed `PENDING` forever, which permanently blocks
+   `release_lot()`. Added a text-comparison branch (case/whitespace-insensitive). Fixed in the live
+   DB and in `neotrace_phase1_delta.sql`.
+2. **Recall's detailed impact message was dead code.** `Qc.tsx`'s `run(fn, okText)` helper always
+   overwrote whatever `setMsg()` the caller's `fn` set, with the generic `okText`, immediately
+   after `fn` resolved. Only the Recall handler tried to show something more specific
+   (`N lot produk jadi dan M batch dikunci`) — it was provably unreachable. `run()` now accepts an
+   optional `{tone, text}` return value from `fn` and uses that when present.
+3. **Rapid consecutive allergen-tag clicks on Terima overwrote each other.** `Receive.tsx`'s
+   allergen toggle computed the next array from the outer `f.allergenIds` closure, not from the
+   updater's own `p` — two toggles landing in the same React batch (confirmed with two synchronous
+   `.click()` calls) silently dropped the first one. Rewrote as a proper functional update
+   (`toggleAllergen`, computed entirely inside `setF(p => ...)`).
+4. **`confirm_pick()` couldn't complete a single pick line.** `status = CASE WHEN … THEN
+   'COMPLETED' ELSE 'SHORT' END` assigned to a `pick_status` column throws `column "status" is of
+   type pick_status but expression is of type text` — Postgres resolves an all-literal `CASE` as
+   `text` before it ever looks at the assignment target. This is **the** reason picking had never
+   been exercised: every single `confirmPick()` call from the UI failed immediately. Added
+   `::pick_status` casts to both `CASE` expressions in the function (pick line status, and pick
+   list status). Fixed live and in `neotrace_phase2_delta.sql`.
+5. **CCP readings had no evaluation path at all** — worse than #1, `ccp_readings` never had *any*
+   trigger, numeric or text. Every CCP reading recorded through the app (temperature, Brix, any
+   critical limit) stayed `PENDING` forever — a real ISO 22000 gap, since a genuinely out-of-spec
+   critical reading would never surface as FAIL or force `corrective_action`. Added
+   `trg_eval_ccp_reading()` (numeric-only, matching what `ccp_definitions` actually models — it has
+   no text-spec column). Fixed live and in `neotrace_schema.sql`.
+6. **`notifications` had no INSERT policy at all** — only read + update. `consumeLot()` writes
+   directly to `batch_consumption` via PostgREST (not an RPC), so its `trg_check_consumption`
+   trigger runs under the calling user's own RLS context, not a security-definer bypass. The
+   trigger's FEFO-override notification insert failed with a bare RLS violation, silently killing
+   that one `batch_consumption` row (others in the same batch still succeeded — Production.tsx's
+   `consumeFromPick` catches per-row errors). Added `p_insert_notifications` (any active
+   authenticated user, mirroring the existing read policy's permissiveness).
+7. **"Catat konsumsi dari pick list" was not actually idempotent**, despite its own doc comment
+   claiming otherwise ("Sudah tercatat → dilewati"). `pickedLines()` returns every COMPLETED/SHORT
+   line unconditionally; retrying after a partial failure (exactly what bug #6 caused) would have
+   recorded the already-succeeded lines a second time — silently doubling their cost/quantity in
+   HPP. Added `consumedHuIds(batchId)` and filter picked lines against it before the retry loop.
+8. **`searchLots()` (Telusur → Lot → produk) has never worked.** `.or('lot_code.ilike…,
+   items.name.ilike…, items.code.ilike…')` mixes a local column with embedded-table columns in one
+   flat PostgREST `or()` string — not supported, fails with "failed to parse logic tree" on every
+   call. Rewrote as two parallel queries (own-column `ilike`, and `.or(..., {referencedTable:
+   'items'})` for the embedded columns) merged client-side.
+9. **Masked by #8 until it was fixed**: `partners(name)` embedded off `lots` is ambiguous —
+   `lots` has two FKs to `partners` (`supplier_id`, `owner_partner_id`) and PostgREST refuses to
+   guess. Same bug existed in `traceBackward()` (Batch → bahan), just never reached because search
+   always failed first. Both now specify `partners!lots_supplier_id_fkey(name)` explicitly.
+
+**Every scenario passed after its fix**, re-verified through the actual UI (not just re-run via
+SQL) except where noted inline. The dummy dataset and all 20 transactions are left in the database
+deliberately — this is the mockup the request asked for, not disposable test fixtures, so nothing
+was cleaned up this time (unlike the isolated one-off test rows from earlier sessions, e.g. §6d's
+`RM-TEST-999`).
+
+**New/updated Known gaps** (numbering continues below): gap 2 is resolved. Gap 0's discrete-picking
+half is resolved; wave-picking (`generate_wave`, in-wave `confirm_pick`) and the ERP outbox worker
+remain genuinely unexercised — no second/third batch was left free to form a wave with in this
+pass. Added below as gap 20.
+
+---
+
 ## 7. Verification done
 
 - `npx tsc -b` — clean
@@ -535,12 +626,17 @@ suspicion put-away deserved before it was tested.
 
 0. **`generate_wave`, in-wave `confirm_pick`, the ERP outbox worker functions
    (`enqueue_sync`/`claim_outbox`/`ack_outbox`/`fail_outbox`), and `forecast_moving_average` are
-   all unexercised against live data.** Both deltas are applied and the read-only screens (Waves
-   list, all five Analytics tabs) render correctly, but nothing has actually written through the
-   Fase 3/4 write paths yet — see §7's Fase 3+4 verification note. Also: the `erp-sync` edge
-   function is not deployed and has no `ERP_BASE_URL` / `ERP_TOKEN` secrets, so the outbox will
-   fill and never drain — expected until an ERP sandbox exists (RAID A41/A42: nobody has confirmed
-   the target ERP even accepts inbound documents).
+   all unexercised against live data.** Discrete `confirm_pick` (outside a wave) **is** now
+   exercised — see gap 2, resolved — and turned up a real bug (§6g #4) that would have hit wave
+   picking identically, since in-wave picking calls the same `confirm_pick()` function. Still
+   genuinely untested: `generate_wave` itself, and everything Fase 4 (outbox/ERP sync). Both
+   deltas are applied and the read-only screens (Waves list, all five Analytics tabs) render
+   correctly, but nothing has actually written through these specific paths yet. Also: the
+   `erp-sync` edge function is not deployed and has no `ERP_BASE_URL` / `ERP_TOKEN` secrets, so the
+   outbox will fill and never drain — expected until an ERP sandbox exists (RAID A41/A42: nobody
+   has confirmed the target ERP even accepts inbound documents). A `integration_endpoints` row now
+   exists (`ERP-SANDBOX`, dummy `base_url`, §6g) so at least `enqueue_sync` has somewhere to enqueue
+   to next time someone picks this up — it still won't actually send anywhere.
 1. **Master data is placeholder, not real.** Items, suppliers, formula, and rack layout are all
    fictional test data seeded this session — see "Live environment" above. Real PT Neopangan data
    (items, partners, locations, formulas, allergens, `ccp_definitions`, and the Fase 2 location
@@ -548,11 +644,11 @@ suspicion put-away deserved before it was tested.
    `allergen_policy`, `pick_sequence`, `is_staging`) still needs importing (T05–T07, P01–P06).
    Also fill `items.weight_per_uom_kg` for every real item or rack capacity checks silently treat
    1 kg per unit.
-2. **Picking and staging are untested against live data.** Put-away was walked end-to-end and
-   turned up two real bugs (§6a) that static review missed. Picking (`generate_pick_list_from_batch`
-   → `confirm_pick`, including a deliberate short pick and a deliberate FEFO override) and staging
-   assignment have only been checked for empty-state rendering, not actually exercised. Do this
-   before trusting them.
+2. ~~Picking and staging are untested against live data.~~ **Resolved (§6g, 17 Aug 2026)** — full
+   discrete picking (`generate_pick_list_from_batch` → `confirm_pick`, incl. a deliberate short
+   pick and a deliberate FEFO override) and staging assign/release walked live through the actual
+   UI. Turned up 6 of the 9 bugs fixed in §6g, the most serious being #4 (picking could not
+   complete a single line at all before the fix — every `confirm_pick()` call failed).
 3. **Column-name risk remains for the parts of Fase 2 not yet live-tested** — `queries.ts`/
    `putaway.ts`/`picking.ts` were written from `neotrace_phase2_delta.sql`, which is exact, so risk
    is low, but put-away's two bugs (a frontend query filtering the wrong column, and a DB constraint
@@ -616,36 +712,45 @@ suspicion put-away deserved before it was tested.
     the `admin-create-user` edge function, gated to active ADMIN callers. The service role key
     itself still never reaches the client, as required — the edge function is the only thing
     that touches it.
+20. **Wave picking (`generate_wave`, in-wave `confirm_pick`) is still unexercised against live
+    data** (§6g, 17 Aug 2026) — discrete picking now is, and turned up a real bug in
+    `confirm_pick()` itself (§6g #4, fixed) that would have hit wave picking identically since
+    they share the same function. Next session: form a wave from BATCH-2608-002 and BATCH-2608-003
+    (both still open/`PLANNED` in the staging DB) via `/gelombang`, assign a picker, and work
+    through `WavePickSheet` for real — that's the one Fase 3 write path this pass didn't reach.
 
 ---
 
 ## 9. Next session — do these in order
 
-1. Import real master data (gap 1) — items, partners, locations with the real Sauce Division rack
-   layout, formulas, `ccp_definitions`. This unblocks everything else; right now Receive/Production
-   only have three fictional items to pick from. `/admin` → Data induk (§6d) can now do items/
-   partners/locations via Excel upload instead of hand-written SQL — formulas and
-   `ccp_definitions` still need a SQL run, they aren't in the uploadable table list.
-2. Walk picking and staging end-to-end against live data (gap 2) — generate a pick list from a real
-   batch, confirm a pick with a deliberate short pick and a deliberate FEFO override, assign and
-   release a staging area. Fix whatever surfaces, the same way put-away's two bugs got fixed
-   earlier (§6a). Then do the same for a wave across 3 batches (`generate_wave`, still unexercised
-   — gap 0), checking that each batch lands in its own tote and that the stop order actually
-   follows `pick_sequence`.
-3. Continue the golden path past put-away: pick list → record consumption from pick list → CCP →
-   close batch → check yield/HPP → trace forward. Exercising close-batch also gives `trg_enqueue_batch`
-   its first real trigger — check the outbox actually gets a row (gap 0).
-4. Decide the allergen-zoning rollout approach for real inventory (gap 5) before pointing this at
-   actual stock.
-5. Physical label print test — rack labels and handling-unit labels both use the same 50×30mm
+1. ~~Walk picking and staging end-to-end against live data (gap 2).~~ **Done (§6g, 17 Aug 2026)** —
+   9 real bugs found and fixed, including one that made `confirm_pick()` fail on literally every
+   call. Batch-close/HPP and forward+backward trace were exercised too.
+2. Form a wave across `BATCH-2608-002` and `BATCH-2608-003` (both left `PLANNED`, unpicked, in the
+   staging DB for exactly this) via `/gelombang` — `generate_wave` and in-wave `confirm_pick` are
+   the one Fase 3 write path §6g didn't reach (gap 0, gap 20). Check each batch lands in its own
+   tote and the stop order follows `pick_sequence`. Since discrete `confirm_pick()` had a real bug
+   before this session (§6g #4) that would have broken wave picking identically, don't assume
+   wave-specific code is clean just because discrete picking now is — the wave-only parts
+   (`generate_wave`, tote assignment, `trg_close_wave`) are still genuinely unverified.
+3. Import real master data (gap 1) — items, partners, locations with the real Sauce Division rack
+   layout, formulas, `ccp_definitions`. Real data will replace the dummy set from §6g; `/admin` →
+   Data induk (§6d) can do items/partners/locations via Excel upload instead of hand-written SQL —
+   formulas and `ccp_definitions` still need a SQL run, they aren't in the uploadable table list.
+4. Exercise the ERP outbox for real (gap 0): close a batch (`trg_enqueue_batch` should fire),
+   confirm a row lands in `sync_outbox` against the `ERP-SANDBOX` endpoint seeded in §6g, and
+   deploy `erp-sync` (still not deployed) once there's an actual ERP sandbox URL/token to point at.
+5. Decide the allergen-zoning rollout approach for real inventory (gap 5) before pointing this at
+   actual stock — the hard-block trigger itself is now confirmed working correctly (§6g, scenario 9).
+6. Physical label print test — rack labels and handling-unit labels both use the same 50×30mm
    sticker size, unconfirmed against a real printer (gap 4).
-6. **Get the Fase 4 go/no-go decision (RAID R41)** before investing anything further in the ERP
+7. **Get the Fase 4 go/no-go decision (RAID R41)** before investing anything further in the ERP
    integration. If Neofood adopts a full ERP, most of Fase 4 is wasted work. The code is written;
    deploying and operating it is the expensive part.
-7. When ready to leave staging: create a **separate** Supabase project for production and repeat the
+8. When ready to leave staging: create a **separate** Supabase project for production and repeat the
    schema + delta runs — don't repoint the same `neotrace-staging` project's placeholder data at
    real operations.
-8. Then attack the remaining smaller gaps (6, 7, 8, 9, 10, 16, 17).
+9. Then attack the remaining smaller gaps (6, 7, 8, 9, 10, 16, 17).
 
 ---
 

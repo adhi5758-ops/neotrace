@@ -149,16 +149,37 @@ export interface LotRow {
   partners: { name: string } | null;
 }
 
-/** Cari lot berdasarkan kode lot atau nama/kode bahan. */
-export const searchLots = (q: string) =>
-  rows<LotRow>(
+/**
+ * Cari lot berdasarkan kode lot atau nama/kode bahan.
+ *
+ * PostgREST tidak bisa meng-OR-kan kolom lokal dengan kolom tabel terkait
+ * (items.*) dalam satu string or() datar — dicoba dulu seperti itu, gagal
+ * live dengan "failed to parse logic tree" karena hasilnya jadi tanda
+ * kurung ganda yang tidak valid. Jalan keluarnya: dua query terpisah (satu
+ * atas lot_code, satu atas items.name/items.code lewat opsi referencedTable
+ * yang memang didukung), lalu digabung & di-dedup di klien.
+ */
+export const searchLots = async (q: string): Promise<LotRow[]> => {
+  const like = `%${q}%`;
+  const base = () =>
     supabase
       .from('lots')
-      .select('id, lot_code, status, expiry_date, halal_valid_until, owner_type, unit_cost, qty_received, items!inner(code, name, base_uom), partners(name)')
-      .or(`lot_code.ilike.%${q}%,items.name.ilike.%${q}%,items.code.ilike.%${q}%`)
+      // partners!lots_supplier_id_fkey wajib eksplisit — lots punya DUA FK ke
+      // partners (supplier_id, owner_partner_id), PostgREST menolak menebak
+      // (ditemukan live, tersembunyi sebelumnya oleh bug or() di atas)
+      .select('id, lot_code, status, expiry_date, halal_valid_until, owner_type, unit_cost, qty_received, items!inner(code, name, base_uom), partners!lots_supplier_id_fkey(name)')
       .order('lot_code')
-      .limit(40)
-  );
+      .limit(40);
+
+  const [byLot, byItem] = await Promise.all([
+    rows<LotRow>(base().ilike('lot_code', like)),
+    rows<LotRow>(base().or(`name.ilike.${like},code.ilike.${like}`, { referencedTable: 'items' })),
+  ]);
+
+  const merged = new Map(byLot.map((l) => [l.id, l]));
+  for (const l of byItem) merged.set(l.id, l);
+  return [...merged.values()];
+};
 
 export const lotHandlingUnits = (lotId: string) =>
   rows<{ id: string; hu_code: string; qr_token: string; qty_remaining: number; uom: string; status: string; locations: { code: string } | null }>(

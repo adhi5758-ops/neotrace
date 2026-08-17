@@ -442,7 +442,12 @@ begin
 
   update pick_list_lines
      set qty_picked = p_qty, picked_lot_id = v_lot, picked_hu_id = p_hu_id,
-         status = case when p_qty >= qty_requested then 'COMPLETED' else 'SHORT' end,
+         -- ::pick_status wajib — CASE dengan dua cabang literal teks polos
+         -- di-resolve Postgres sebagai text SEBELUM melihat tipe kolom
+         -- tujuan, jadi assignment langsung gagal tanpa cast eksplisit ini
+         -- (ditemukan live 17 Aug 2026, picking belum pernah benar-benar
+         -- dicoba end-to-end sebelum sesi ini)
+         status = case when p_qty >= qty_requested then 'COMPLETED' else 'SHORT' end::pick_status,
          short_reason = case when p_qty < qty_requested
                              then coalesce(p_override_reason, 'kurang dari permintaan') end,
          fefo_override = v_override, override_reason = p_override_reason,
@@ -458,7 +463,7 @@ begin
     status = case when not exists (
                     select 1 from pick_list_lines
                     where pick_list_id = l.pick_list_id and status in ('OPEN','ASSIGNED','IN_PROGRESS'))
-                  then 'COMPLETED' else 'IN_PROGRESS' end,
+                  then 'COMPLETED' else 'IN_PROGRESS' end::pick_status,
     completed_at = case when not exists (
                     select 1 from pick_list_lines
                     where pick_list_id = l.pick_list_id and status in ('OPEN','ASSIGNED','IN_PROGRESS'))

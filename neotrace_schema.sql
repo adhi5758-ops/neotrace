@@ -420,6 +420,30 @@ create table ccp_readings (
 );
 create index idx_ccp_batch on ccp_readings(batch_id);
 
+-- evaluasi otomatis PASS/FAIL terhadap batas ccp_definitions.min_value/max_value.
+-- Ditemukan live (17 Aug 2026): tabel ini tidak pernah punya jalur evaluasi sama
+-- sekali (beda dari qc_tests yang setidaknya punya cabang numerik) — setiap
+-- pembacaan CCP macet di PENDING selamanya, celah kepatuhan ISO 22000 yang nyata
+-- karena batas kritis (mis. suhu pasteurisasi) tidak pernah benar-benar ditegakkan.
+create or replace function trg_eval_ccp_reading() returns trigger
+language plpgsql as $$
+declare v_min numeric; v_max numeric;
+begin
+  if new.value_num is not null then
+    select min_value, max_value into v_min, v_max from ccp_definitions where id = new.ccp_id;
+    if v_min is not null or v_max is not null then
+      new.result := case
+        when (v_min is not null and new.value_num < v_min)
+          or (v_max is not null and new.value_num > v_max)
+        then 'FAIL'::qc_result else 'PASS'::qc_result end;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger t_ccp_reading_eval before insert or update on ccp_readings
+  for each row execute function trg_eval_ccp_reading();
+
 -- biaya tambahan per batch (tenaga kerja, overhead, utilitas)
 create table batch_costs (
   id          uuid primary key default gen_random_uuid(),

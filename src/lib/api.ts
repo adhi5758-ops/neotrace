@@ -279,6 +279,19 @@ export interface ConsumeInput {
   overrideReason?: string;
 }
 
+/** HU yang sudah tercatat konsumsinya untuk batch ini — dipakai untuk
+ * mencegah baris yang sama tercatat dua kali saat "Catat konsumsi dari pick
+ * list" diulang setelah kegagalan sebagian (lihat consumeFromPick). */
+export async function consumedHuIds(batchId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('batch_consumption')
+    .select('hu_id')
+    .eq('batch_id', batchId)
+    .not('hu_id', 'is', null);
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.hu_id as string));
+}
+
 /**
  * Konsumsi bahan ke batch. Trigger database menolak lot kedaluwarsa,
  * halal habis, belum release, atau melanggar FEFO tanpa alasan tertulis.
@@ -410,7 +423,9 @@ export async function traceForward(lotId: string) {
 export async function traceBackward(batchId: string) {
   const { data, error } = await supabase
     .from('batch_consumption')
-    .select('qty_actual, uom, lots(lot_code, expiry_date, supplier_id, partners(name)), items(name)')
+    // partners!lots_supplier_id_fkey wajib eksplisit — lots punya DUA FK ke
+    // partners (supplier_id, owner_partner_id), PostgREST menolak menebak
+    .select('qty_actual, uom, lots(lot_code, expiry_date, supplier_id, partners!lots_supplier_id_fkey(name)), items(name)')
     .eq('batch_id', batchId);
   if (error) throw error;
   return data;
