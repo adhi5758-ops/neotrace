@@ -51,7 +51,7 @@ export async function listPickLists(onlyOpen = true): Promise<PickList[]> {
     .from('pick_lists')
     .select(`id, doc_no, source_type, batch_id, do_id, staging_location_id, assigned_to, status, started_at, completed_at, packed_at, created_at,
       production_batches(batch_no, target_qty, items(name)),
-      delivery_orders(doc_no, partners!delivery_orders_customer_id_fkey(name))`)
+      delivery_orders!pick_lists_do_id_fkey(doc_no, partners!delivery_orders_customer_id_fkey(name))`)
     .order('created_at', { ascending: false });
   if (onlyOpen) q = q.neq('status', 'COMPLETED').neq('status', 'CANCELLED');
   const { data, error } = await q;
