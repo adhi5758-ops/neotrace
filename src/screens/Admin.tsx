@@ -402,7 +402,9 @@ function MasterData() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
-    void supabase.from(sel.table).select('*').order(sel.conflictKey).limit(200)
+    let q = supabase.from(sel.table).select('*');
+    if (sel.filter) q = q.eq(sel.filter.column, sel.filter.value);
+    void q.order(sel.conflictKey).limit(200)
       .then(({ data, error }) => {
         if (error) { setMsg({ tone: 'bad', text: parseDbError(error).message }); return; }
         setRows(data ?? []);

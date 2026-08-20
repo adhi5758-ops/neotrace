@@ -12,17 +12,46 @@ export interface MasterTableConfig {
   headers: string[];
   example: (string | number | null)[];
   booleanColumns: string[];
+  /** Batasi daftar & unggahan ke baris dgn nilai kolom ini saja (mis. items.type). */
+  filter?: { column: string; value: string };
+  /** Nilai tetap yg ikut disisipkan saat upsert, di luar kolom yg diisi dari Excel
+   *  (mis. type='RAW' otomatis, tak perlu diketik ulang tiap baris di templat). */
+  fixedValues?: Record<string, string>;
 }
 
 export const MASTER_TABLES: MasterTableConfig[] = [
   {
-    key: 'items',
-    label: 'Bahan & produk (Items)',
+    key: 'items_raw',
+    label: 'Bahan Baku (Raw Material)',
     table: 'items',
     conflictKey: 'code',
-    headers: ['code', 'name', 'type', 'base_uom', 'shelf_life_days', 'standard_cost', 'requires_halal_cert'],
-    example: ['RM-XXX-001', 'Contoh Bahan Baku', 'RAW', 'KG', null, 15000, 'true'],
+    headers: ['code', 'name', 'base_uom', 'shelf_life_days', 'standard_cost', 'requires_halal_cert'],
+    example: ['RM-XXX-001', 'Contoh Bahan Baku', 'KG', null, 15000, 'true'],
     booleanColumns: ['requires_halal_cert'],
+    filter: { column: 'type', value: 'RAW' },
+    fixedValues: { type: 'RAW' },
+  },
+  {
+    key: 'items_finished',
+    label: 'Produk Jadi (Finished Goods)',
+    table: 'items',
+    conflictKey: 'code',
+    headers: ['code', 'name', 'base_uom', 'shelf_life_days', 'standard_cost', 'requires_halal_cert'],
+    example: ['FG-XXX-001', 'Contoh Produk Jadi', 'KG', 365, 25000, 'true'],
+    booleanColumns: ['requires_halal_cert'],
+    filter: { column: 'type', value: 'FINISHED' },
+    fixedValues: { type: 'FINISHED' },
+  },
+  {
+    key: 'items_packaging',
+    label: 'Kemasan (Packaging)',
+    table: 'items',
+    conflictKey: 'code',
+    headers: ['code', 'name', 'base_uom', 'standard_cost'],
+    example: ['PKG-XXX-001', 'Contoh Kemasan', 'PCS', 500],
+    booleanColumns: [],
+    filter: { column: 'type', value: 'PACKAGING' },
+    fixedValues: { type: 'PACKAGING' },
   },
   {
     key: 'partners',
@@ -75,5 +104,6 @@ export function coerceRow(row: Record<string, unknown>, cfg: MasterTableConfig):
       out[key] = raw;
     }
   }
+  if (cfg.fixedValues) Object.assign(out, cfg.fixedValues);
   return out;
 }
