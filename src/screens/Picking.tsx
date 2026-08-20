@@ -16,6 +16,7 @@ import {
   listPickLists, pickLines, confirmPick, startPicking,
   type PickList, type PickLine,
 } from '../lib/picking';
+import { reversePick } from '../lib/api-phase6';
 import { useLabourSession } from '../lib/labour';
 import SessionConflict from '../components/SessionConflict';
 import { C, MONO, s, pill } from '../ui';
@@ -77,6 +78,9 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
   const [active, setActive] = useState<PickLine | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +102,21 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
   const done = lines.filter((l) => l.status === 'COMPLETED').length;
   const short = lines.filter((l) => l.status === 'SHORT').length;
   const locCode = (id: string | null) => locations.find((l) => l.id === id)?.code ?? '—';
+
+  async function cancelPick(lineId: string) {
+    setCancelBusy(true);
+    setErr(null);
+    try {
+      await reversePick(lineId, cancelReason.trim());
+      setCancelingId(null);
+      setCancelReason('');
+      await load();
+    } catch (e) {
+      setErr((e as { message?: string }).message ?? parseDbError(e).message);
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   if (active) {
     return (
@@ -128,11 +147,8 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
 
       {lines.map((l) => {
         const settled = l.status === 'COMPLETED' || l.status === 'SHORT';
-        return (
-          <button key={l.id}
-                  style={{ ...s.card, width: '100%', textAlign: 'left', cursor: 'pointer', opacity: settled ? 0.5 : 1 }}
-                  disabled={settled}
-                  onClick={() => setActive(l)}>
+        const body = (
+          <>
             <div style={s.rowBetween}>
               <div style={s.code}>
                 <span style={{ color: C.slate }}>{l.sequence}</span>  {locCode(l.from_location_id)}
@@ -147,7 +163,47 @@ function PickDetail({ list, onBack }: { list: PickList; onBack: () => void }) {
             </div>
             {l.fefo_override && <div style={{ ...s.meta, color: C.amber }}>FEFO dilanggar dengan alasan</div>}
             {l.short_reason && <div style={{ ...s.meta, color: C.chili }}>{l.short_reason}</div>}
-          </button>
+          </>
+        );
+
+        if (!settled) {
+          return (
+            <button key={l.id} style={{ ...s.card, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                    onClick={() => setActive(l)}>
+              {body}
+            </button>
+          );
+        }
+
+        const canceling = cancelingId === l.id;
+        return (
+          <div key={l.id} style={{ ...s.card, opacity: 0.5 }}>
+            {body}
+            {!canceling && (
+              <button style={{ ...s.btnGhost, padding: '5px 10px', fontSize: 11, marginTop: 8 }}
+                      onClick={() => { setCancelingId(l.id); setCancelReason(''); }}>
+                Batalkan
+              </button>
+            )}
+            {canceling && (
+              <div style={{ marginTop: 8 }}>
+                <label style={s.label} htmlFor={`cancel-${l.id}`}>Alasan pembatalan pick (wajib, min 8 karakter)</label>
+                <textarea id={`cancel-${l.id}`} style={{ ...s.input, resize: 'vertical' }} rows={2}
+                          value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                  <button style={s.btnGhost} disabled={cancelBusy}
+                          onClick={() => { setCancelingId(null); setCancelReason(''); }}>
+                    Batal
+                  </button>
+                  <button style={{ ...s.btnGhost, borderColor: C.chili, color: C.chili, opacity: cancelBusy || cancelReason.trim().length < 8 ? 0.5 : 1 }}
+                          disabled={cancelBusy || cancelReason.trim().length < 8}
+                          onClick={() => void cancelPick(l.id)}>
+                    Konfirmasi
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         );
       })}
     </div>

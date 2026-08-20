@@ -31,9 +31,9 @@ export interface Partner { id: string; code: string; name: string; type: string 
 export const listPartners = (type: 'SUPPLIER' | 'CUSTOMER') =>
   rows<Partner>(supabase.from('partners').select('id, code, name, type').in('type', [type, 'BOTH']).order('name'));
 
-export interface Location { id: string; code: string; name: string | null; type: string; is_staging: boolean }
+export interface Location { id: string; code: string; name: string | null; type: string; is_staging: boolean; is_primary_pick: boolean }
 export const listLocations = () =>
-  rows<Location>(supabase.from('locations').select('id, code, name, type, is_staging').order('code'));
+  rows<Location>(supabase.from('locations').select('id, code, name, type, is_staging, is_primary_pick').order('code'));
 
 export interface Allergen { id: number; code: string; name_id: string }
 export const listAllergens = () =>

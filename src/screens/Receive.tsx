@@ -23,7 +23,7 @@ export default function Receive() {
 
   const [f, setF] = useState({
     itemId: '', supplierId: '', supplierLotNo: '', supplierDoNo: '', poNo: '',
-    qty: '', unitCost: '', expiryDate: '', manufacturedOn: '',
+    qty: '', unitCost: '', landedCostPerUom: '', expiryDate: '', manufacturedOn: '',
     halalCertNo: '', halalValidUntil: '',
     ownerType: 'OWN' as 'OWN' | 'CONSIGNED', ownerPartnerId: '',
     huCount: '1', packageType: '', locationId: '', temperatureC: '',
@@ -76,6 +76,7 @@ export default function Receive() {
         qty,
         uom: item?.base_uom ?? 'KG',
         unitCost: Number(f.unitCost) || 0,
+        landedCostPerUom: Number(f.landedCostPerUom) || 0,
         expiryDate: f.expiryDate,
         manufacturedOn: f.manufacturedOn || undefined,
         halalCertNo: f.halalCertNo || undefined,
@@ -100,6 +101,7 @@ export default function Receive() {
     if (!done) return;
     try {
       await printLabels(done.handlingUnits.map((h) => ({
+        hu_id: h.id,
         hu_code: h.hu_code,
         qr_token: h.qr_token,
         lot_code: done.lotCode,
@@ -196,6 +198,11 @@ export default function Receive() {
         </div>
       </div>
 
+      <label style={s.label} htmlFor="landed">Landed cost per {item?.base_uom ?? 'unit'} (Rp, opsional)</label>
+      <input id="landed" style={s.input} type="number" inputMode="decimal" step="0.01"
+             placeholder="ongkos kirim / bea masuk per satuan - ikut masuk HPP produksi"
+             value={f.landedCostPerUom} onChange={(e) => set('landedCostPerUom', e.target.value)} />
+
       <div style={s.grid2}>
         <div>
           <label style={s.label} htmlFor="hu">Jumlah kemasan fisik</label>
@@ -272,8 +279,19 @@ export default function Receive() {
           <label style={s.label} htmlFor="loc">Lokasi simpan</label>
           <select id="loc" style={s.input} value={f.locationId} onChange={(e) => set('locationId', e.target.value)}>
             <option value="">— pilih lokasi —</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.code} · {l.name ?? l.type}</option>)}
+            {locations.filter((l) => l.is_staging).map((l) => (
+              <option key={l.id} value={l.id}>{l.code} · {l.name ?? l.type} (staging)</option>
+            ))}
+            {locations.some((l) => l.is_staging) && locations.some((l) => !l.is_staging) && (
+              <option disabled>──────────</option>
+            )}
+            {locations.filter((l) => !l.is_staging).map((l) => (
+              <option key={l.id} value={l.id}>{l.code} · {l.name ?? l.type}</option>
+            ))}
           </select>
+          <p style={s.meta}>
+            Sebaiknya simpan dulu di lokasi staging sampai lolos QA, baru dipindah ke rak permanen lewat Put-away.
+          </p>
         </div>
         <div>
           <label style={s.label} htmlFor="temp">Suhu terima (°C)</label>

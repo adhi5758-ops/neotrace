@@ -135,6 +135,7 @@ export interface ReceiveInput {
   packageType?: string;
   locationId?: string;
   allergenIds?: number[];
+  landedCostPerUom?: number; // ongkos kirim/bea masuk per uom, ikut masuk ke HPP konsumsi (trg_check_consumption)
 }
 
 export interface ReceiveResult {
@@ -166,6 +167,7 @@ export async function receiveGoods(input: ReceiveInput): Promise<ReceiveResult> 
       halal_cert_no: input.halalCertNo ?? null,
       halal_valid_until: input.halalValidUntil ?? null,
       unit_cost: input.unitCost,
+      landed_cost_per_uom: input.landedCostPerUom ?? 0,
       qty_received: input.qty,
       status: 'QUARANTINE',
     })

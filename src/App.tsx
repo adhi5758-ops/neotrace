@@ -33,6 +33,9 @@ import Analytics from './screens/Analytics';
 import Delivery from './screens/Delivery';
 import Monitor from './screens/Monitor';
 import Admin from './screens/Admin';
+import CycleCount from './screens/CycleCount';
+import Replenishment from './screens/Replenishment';
+import Account from './screens/Account';
 
 const TABS = [
   { to: '/', label: 'Beranda', end: true },
@@ -109,6 +112,9 @@ export default function App() {
         <Route path="/telusur" element={<Trace />} />
         <Route path="/notifikasi" element={<Notifications onRead={() => setUnread((n) => Math.max(0, n - 1))} />} />
         <Route path="/monitor" element={<Monitor />} />
+        <Route path="/opname" element={<CycleCount role={profile?.role} />} />
+        <Route path="/replenishment" element={<Replenishment />} />
+        <Route path="/akun" element={<Account email={session.user.email} fullName={profile?.full_name} role={profile?.role} />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/h/:token" element={<Scan />} />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -127,7 +133,7 @@ function TopBar({ name, role, unread, queued }: { name: string; role: string; un
         <img src="/neofood-logo.png" alt="Neofood — PT Neopangan Selaras Indonesia" style={bar.logo} />
         <div>
           <div style={bar.brand}>NEOTRACE</div>
-          <div style={bar.who}>{name} · {role}</div>
+          <NavLink to="/akun" style={bar.who}>{name} · {role}</NavLink>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -223,7 +229,7 @@ const bar: Record<string, React.CSSProperties> = {
   brandRow: { display: 'flex', alignItems: 'center', gap: 9 },
   logo: { height: 30, width: 'auto', flex: 'none' },
   brand: { fontSize: 13, fontWeight: 800, letterSpacing: '.16em' },
-  who: { fontSize: 10, fontFamily: MONO, color: '#9FB5AA', marginTop: 2 },
+  who: { fontSize: 10, fontFamily: MONO, color: '#9FB5AA', marginTop: 2, textDecoration: 'none', display: 'block' },
   queued: { fontSize: 9.5, fontFamily: MONO, color: C.amber, border: `1px solid ${C.amber}`, padding: '3px 5px' },
   bell: { fontSize: 11, color: C.lab, textDecoration: 'none', fontFamily: MONO, display: 'flex', gap: 5, alignItems: 'center' },
   count: { background: C.chili, color: '#fff', fontSize: 9.5, padding: '1px 5px', fontWeight: 700 },

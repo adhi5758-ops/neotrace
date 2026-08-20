@@ -11,6 +11,7 @@ import {
   releaseLot, holdLot, quarantineCascade, listQcPending,
   createIncomingSample, recordTestResult, parseDbError,
 } from '../lib/api';
+import { reverseReceipt } from '../lib/api-phase6';
 import { addTest, lotSamples, type QcPendingRow, type QcSample, type QcTest } from '../lib/queries';
 import { C, MONO, s, pill } from '../ui';
 
@@ -166,6 +167,11 @@ function LotDetail({ row, role, onBack }: { row: QcPendingRow; role?: string; on
                   }, 'Recall dijalankan.');
                 }}>
           Recall (kunci turunan)
+        </button>
+        <button style={{ ...s.btnGhost, width: '100%', marginTop: 10, borderColor: C.chili, color: C.chili, opacity: busy || reason.trim().length < 8 ? 0.5 : 1 }}
+                disabled={busy || reason.trim().length < 8}
+                onClick={() => void run(() => reverseReceipt(row.lot_id, reason.trim()), 'Penerimaan dibatalkan.')}>
+          Batalkan penerimaan
         </button>
       </div>
     </div>

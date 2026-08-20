@@ -7,10 +7,12 @@
  * menariknya kembali jadi UUID.
  */
 import QRCode from 'qrcode';
+import { logLabelPrint } from './api-phase6';
 
 export const LABEL_MM = { w: 50, h: 30 };
 
 export interface LabelData {
+  hu_id?: string;               // dipakai untuk log cetak (label_print_log), opsional demi kompatibilitas mundur
   hu_code: string;
   qr_token: string;
   lot_code: string;
@@ -19,6 +21,7 @@ export interface LabelData {
   uom: string;
   expiry_date?: string | null;
   owner_name?: string | null;   // diisi kalau bahan titipan klien
+  is_reprint?: boolean;
 }
 
 export const tokenUrl = (token: string, origin = window.location.origin) =>
@@ -45,11 +48,13 @@ async function labelHtml(d: LabelData): Promise<string> {
 /* ------------------------------------------------------- label lokasi (P12) */
 
 export interface LocationLabelData {
+  location_id?: string;         // dipakai untuk log cetak (label_print_log), opsional demi kompatibilitas mundur
   code: string;
   name: string | null;
   allergen_policy?: string;
   rack_code?: string | null;
   level_no?: number | null;
+  is_reprint?: boolean;
 }
 
 const POLICY_TEXT: Record<string, string> = {
@@ -83,6 +88,7 @@ export async function printLocationLabels(locations: LocationLabelData[]) {
   if (!locations.length) return;
   const body = (await Promise.all(locations.map(locationLabelHtml))).join('');
   openPrintWindow(body, 'Label lokasi NEOTRACE');
+  logPrints('LOCATION', locations.map((d) => ({ location_id: d.location_id, is_reprint: d.is_reprint })));
 }
 
 /** Buka jendela cetak berisi seluruh label. Satu label per halaman stiker. */
@@ -90,6 +96,19 @@ export async function printLabels(labels: LabelData[]) {
   if (!labels.length) return;
   const body = (await Promise.all(labels.map(labelHtml))).join('');
   openPrintWindow(body, 'Label NEOTRACE');
+  logPrints('HU', labels.map((d) => ({ hu_id: d.hu_id, is_reprint: d.is_reprint })));
+}
+
+/**
+ * Audit cetak label — tak menghambat pencetakan kalau gagal (mis. offline).
+ * ponytail: catat saja, tanpa retry/antrean; upgrade ke offlineQueue kalau
+ * kebutuhan audit cetak jadi kritis untuk kepatuhan.
+ */
+function logPrints(kind: 'HU' | 'LOCATION', entries: { hu_id?: string; location_id?: string; is_reprint?: boolean }[]) {
+  for (const e of entries) {
+    if (!e.hu_id && !e.location_id) continue;
+    void logLabelPrint(kind, e.hu_id, e.location_id, e.is_reprint ?? false).catch(() => {});
+  }
 }
 
 function openPrintWindow(body: string, title: string) {

@@ -13,7 +13,8 @@ import {
   listDeliveryOrders, listItems, listPartners,
   type DeliveryOrder, type Item, type Partner,
 } from '../lib/queries';
-import { listPickLists, generatePickListFromDo, type PickList } from '../lib/picking';
+import { generatePickListFromDo, pickListForDo, type PickList } from '../lib/picking';
+import { confirmPacking, reverseShipment, generatePickListFromDos } from '../lib/api-phase6';
 import { parseExcelFile, downloadTemplate, exportRows } from '../lib/excel';
 import { C, s, pill } from '../ui';
 
@@ -27,6 +28,9 @@ export default function Delivery() {
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -101,6 +105,27 @@ export default function Delivery() {
     await exportRows(`pesanan-terkirim-${Date.now()}.csv`, rows);
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  }
+
+  async function createBulkPickList() {
+    setBulkBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const docNo = await generatePickListFromDos(selectedIds);
+      setMsg(`Pick list gabungan ${docNo} dibuat untuk ${selectedIds.length} DO. Petugas bisa memetik sekali jalan di layar Pick list.`);
+      setSelectedIds([]);
+      setBulkMode(false);
+      load();
+    } catch (e) {
+      setErr((e as { message?: string }).message ?? parseDbError(e).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   if (open) return <DoDetail order={open} onBack={() => { setOpen(null); load(); }} />;
 
   return (
@@ -128,7 +153,20 @@ export default function Delivery() {
         <button style={{ ...s.btnGhost, maxWidth: 260 }} onClick={() => void exportShipped()}>
           Ekspor pesanan terkirim
         </button>
+        <button
+          style={{ ...s.btnGhost, maxWidth: 260 }}
+          onClick={() => { setBulkMode((p) => !p); setSelectedIds([]); }}
+        >
+          {bulkMode ? 'Batal pilih' : 'Pilih beberapa DO utk bulk picking'}
+        </button>
       </div>
+
+      {bulkMode && selectedIds.length >= 2 && (
+        <button style={{ ...s.btn, maxWidth: 360, opacity: bulkBusy ? 0.5 : 1 }} disabled={bulkBusy}
+                onClick={() => void createBulkPickList()}>
+          {bulkBusy ? 'Membuat…' : `Buat pick list gabungan (${selectedIds.length} DO)`}
+        </button>
+      )}
 
       {showNew && (
         <NewDo items={items} customers={customers} onCancel={() => setShowNew(false)}
@@ -139,20 +177,36 @@ export default function Delivery() {
       {!loading && orders.length === 0 && <div style={s.empty}>Belum ada delivery order.</div>}
 
       <div style={s.cardGrid}>
-        {orders.map((o) => (
-          <button key={o.id} style={{ ...s.card, marginBottom: 0, width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                  onClick={() => setOpen(o)}>
-            <div style={s.rowBetween}>
-              <div style={s.code}>{o.doc_no}</div>
-              <span style={pill(o.status === 'POSTED' ? 'ok' : 'mute')}>{o.status}</span>
-            </div>
-            <div style={s.meta}>
-              {o.partners?.name ?? '—'} · {o.delivery_order_lines.length} baris
-              {o.so_no ? ` · SO ${o.so_no}` : ''}
-              {o.shipped_at ? ` · kirim ${o.shipped_at.slice(0, 10)}` : ''}
-            </div>
-          </button>
-        ))}
+        {orders.map((o) => {
+          const selectable = bulkMode && o.status === 'DRAFT';
+          const checked = selectedIds.includes(o.id);
+          return (
+            <button
+              key={o.id}
+              style={{
+                ...s.card, marginBottom: 0, width: '100%', textAlign: 'left', cursor: 'pointer',
+                display: 'flex', gap: 10, alignItems: 'flex-start',
+                opacity: bulkMode && !selectable ? 0.5 : 1,
+              }}
+              onClick={() => (selectable ? toggleSelected(o.id) : bulkMode ? undefined : setOpen(o))}
+            >
+              {bulkMode && (
+                <input type="checkbox" checked={checked} disabled={!selectable} readOnly style={{ marginTop: 3 }} />
+              )}
+              <div style={{ flex: 1 }}>
+                <div style={s.rowBetween}>
+                  <div style={s.code}>{o.doc_no}</div>
+                  <span style={pill(o.status === 'POSTED' ? 'ok' : 'mute')}>{o.status}</span>
+                </div>
+                <div style={s.meta}>
+                  {o.partners?.name ?? '—'} · {o.delivery_order_lines.length} baris
+                  {o.so_no ? ` · SO ${o.so_no}` : ''}
+                  {o.shipped_at ? ` · kirim ${o.shipped_at.slice(0, 10)}` : ''}
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -263,11 +317,12 @@ function DoDetail({ order, onBack }: { order: DeliveryOrder; onBack: () => void 
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [ship, setShip] = useState({ transporterId: '', vehicleNo: '', driverName: '' });
+  const [cancelReason, setCancelReason] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
-    listPickLists(false)
-      .then((all) => setPick(all.find((p) => p.do_id === order.id && p.status !== 'CANCELLED') ?? null))
+    pickListForDo(order.id)
+      .then(setPick)
       .catch((e) => setErr(parseDbError(e).message))
       .finally(() => setLoading(false));
   }, [order.id]);
@@ -296,6 +351,34 @@ function DoDetail({ order, onBack }: { order: DeliveryOrder; onBack: () => void 
         driverName: ship.driverName || undefined,
       });
       setMsg('DO ditandai terkirim.');
+      onBack();
+    } catch (e) {
+      setErr((e as { message?: string }).message ?? parseDbError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doPack() {
+    if (!pick) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await confirmPacking(pick.id);
+      setMsg('Packing dikonfirmasi. Siap ditandai terkirim.');
+      load();
+    } catch (e) {
+      setErr((e as { message?: string }).message ?? parseDbError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doCancelShipment() {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await reverseShipment(order.id, cancelReason.trim());
+      setMsg('Pengiriman dibatalkan — DO kembali ke status DRAFT.');
+      setCancelReason('');
       onBack();
     } catch (e) {
       setErr((e as { message?: string }).message ?? parseDbError(e).message);
@@ -341,7 +424,20 @@ function DoDetail({ order, onBack }: { order: DeliveryOrder; onBack: () => void 
         </div>
       )}
 
-      {pick?.status === 'COMPLETED' && order.status === 'DRAFT' && (
+      {pick?.status === 'COMPLETED' && !pick.packed_at && order.status === 'DRAFT' && (
+        <>
+          <div style={s.secHead}>Packing</div>
+          <div style={{ ...s.card, maxWidth: 480, borderTop: `3px solid ${C.amber}` }}>
+            <div style={s.code}>Konfirmasi karton sebelum kirim</div>
+            <div style={s.meta}>Pastikan seluruh kemasan sudah dikarton & dicek sebelum lanjut ke pengiriman.</div>
+          </div>
+          <button style={{ ...s.btn, maxWidth: 480, opacity: busy ? 0.5 : 1 }} disabled={busy} onClick={() => void doPack()}>
+            {busy ? 'Menyimpan…' : 'Konfirmasi packing'}
+          </button>
+        </>
+      )}
+
+      {pick?.status === 'COMPLETED' && pick.packed_at && order.status === 'DRAFT' && (
         <>
           <div style={s.secHead}>Tandai terkirim</div>
           <div style={{ ...s.grid2, maxWidth: 480 }}>
@@ -358,6 +454,22 @@ function DoDetail({ order, onBack }: { order: DeliveryOrder; onBack: () => void 
           </div>
           <button style={{ ...s.btn, maxWidth: 480, opacity: busy ? 0.5 : 1 }} disabled={busy} onClick={() => void doShip()}>
             {busy ? 'Menyimpan…' : 'Tandai terkirim'}
+          </button>
+        </>
+      )}
+
+      {order.status === 'POSTED' && (
+        <>
+          <div style={s.secHead}>Batalkan pengiriman</div>
+          <label style={s.label} htmlFor="cancel-reason">Alasan pembatalan (wajib, min. 8 karakter)</label>
+          <textarea id="cancel-reason" style={{ ...s.input, resize: 'vertical', maxWidth: 480 }} rows={2}
+                    value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+          <button
+            style={{ ...s.btn, maxWidth: 480, background: C.chili, opacity: busy || cancelReason.trim().length < 8 ? 0.5 : 1 }}
+            disabled={busy || cancelReason.trim().length < 8}
+            onClick={() => void doCancelShipment()}
+          >
+            {busy ? 'Menyimpan…' : 'Batalkan pengiriman'}
           </button>
         </>
       )}

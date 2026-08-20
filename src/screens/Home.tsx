@@ -11,6 +11,8 @@ const TILES = [
   { to: '/pengiriman', title: 'Pengiriman', hint: 'Delivery order, pick outbound, tandai terkirim' },
   { to: '/telusur', title: 'Telusur', hint: 'Dua arah: lot → produk, batch → bahan' },
   { to: '/analitik', title: 'Analitik', hint: 'Perputaran, KPI, peramalan, sinkronisasi ERP' },
+  { to: '/opname', title: 'Stock opname', hint: 'Rencana hitung, submit hasil, approve/reject QA' },
+  { to: '/replenishment', title: 'Replenishment', hint: 'Rak primer di bawah stok minimum, saran isi ulang' },
 ];
 
 export default function Home({ unread, queued, role }: Props) {

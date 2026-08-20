@@ -11,15 +11,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, parseDbError } from '../lib/api';
 import {
   listWmsRoles, listWmsModules, listWmsPermissions, setPermission,
-  listUsers, setUserRole, setUserWmsRole, setUserActive, createUser, APP_ROLES,
+  listUsers, setUserRole, setUserWmsRole, setUserActive, createUser, resetUserPassword, APP_ROLES,
   type WmsRole, type WmsModule, type WmsRolePermission, type PermissionLevel, type UserRow, type NewUserInput,
 } from '../lib/admin';
 import { MASTER_TABLES, coerceRow, type MasterTableConfig } from '../lib/masterData';
 import { parseExcelFile, downloadTemplate } from '../lib/excel';
+import { listItems, type Item } from '../lib/queries';
 import { C, MONO, s, pill } from '../ui';
 
-type Tab = 'pengguna' | 'akses' | 'induk';
-const TABS: [Tab, string][] = [['pengguna', 'Pengguna'], ['akses', 'Hak akses'], ['induk', 'Data induk']];
+type Tab = 'pengguna' | 'akses' | 'induk' | 'uom';
+const TABS: [Tab, string][] = [
+  ['pengguna', 'Pengguna'], ['akses', 'Hak akses'], ['induk', 'Data induk'], ['uom', 'Konversi UOM'],
+];
 
 export default function Admin() {
   const [tab, setTab] = useState<Tab>('pengguna');
@@ -28,7 +31,7 @@ export default function Admin() {
       <h1 style={s.h1}>Administrator</h1>
       <p style={s.sub}>Pengguna · hak akses WMS · data induk</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(140px, 220px))', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 220px))', gap: 6, marginBottom: 8 }}>
         {TABS.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
                   style={{ ...s.btnGhost, fontSize: 11, fontFamily: MONO, padding: '10px 4px',
@@ -41,6 +44,7 @@ export default function Admin() {
       {tab === 'pengguna' && <Users />}
       {tab === 'akses' && <Permissions />}
       {tab === 'induk' && <MasterData />}
+      {tab === 'uom' && <UomConversions />}
     </div>
   );
 }
@@ -53,6 +57,7 @@ function Users() {
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     Promise.all([listUsers(), listWmsRoles()])
@@ -109,14 +114,76 @@ function Users() {
               </div>
             </div>
 
-            <button style={{ ...s.btnGhost, width: '100%', marginTop: 8 }} disabled={busyId === u.id}
-                    onClick={() => void change(u.id, () => setUserActive(u.id, !u.is_active))}>
-              {u.is_active ? 'Nonaktifkan' : 'Aktifkan'}
-            </button>
+            <div style={{ ...s.grid2, marginTop: 8 }}>
+              <button style={s.btnGhost} disabled={busyId === u.id}
+                      onClick={() => void change(u.id, () => setUserActive(u.id, !u.is_active))}>
+                {u.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+              </button>
+              <button style={s.btnGhost} disabled={busyId === u.id}
+                      onClick={() => setResettingId(resettingId === u.id ? null : u.id)}>
+                {resettingId === u.id ? 'Batal' : 'Reset password'}
+              </button>
+            </div>
+
+            {resettingId === u.id && (
+              <ResetPasswordForm userId={u.id} onDone={() => setResettingId(null)} />
+            )}
           </div>
         ))}
       </div>
     </>
+  );
+}
+
+/** Admin menetapkan langsung password baru — beda dari Akun Saya (Account.tsx)
+ * yang mewajibkan password lama; di sini admin tak perlu tahu password lama
+ * pengguna itu sama sekali. Password baru tidak pernah bisa "dilihat lagi"
+ * setelah form ini ditutup, sama seperti password mana pun di sistem ini. */
+function ResetPasswordForm({ userId, onDone }: { userId: string; onDone: () => void }) {
+  const [pw, setPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+
+  const canSubmit = pw.length >= 6 && pw === confirm;
+
+  async function submit() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await resetUserPassword(userId, pw);
+      setMsg({ tone: 'ok', text: 'Password berhasil direset.' });
+      setPw(''); setConfirm('');
+    } catch (e) {
+      setMsg({ tone: 'bad', text: (e as { message?: string }).message ?? parseDbError(e).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.line}` }}>
+      <label style={s.label} htmlFor={`pw-${userId}`}>Password baru (minimal 6 karakter)</label>
+      <input id={`pw-${userId}`} style={s.input} type="password" autoComplete="new-password"
+             value={pw} onChange={(e) => setPw(e.target.value)} />
+
+      <label style={s.label} htmlFor={`pwc-${userId}`}>Ulangi password baru</label>
+      <input id={`pwc-${userId}`} style={s.input} type="password" autoComplete="new-password"
+             value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+      {confirm.length > 0 && pw !== confirm && (
+        <div style={{ ...s.meta, color: C.chili, marginTop: 6 }}>Password tidak sama.</div>
+      )}
+
+      {msg && <div style={msg.tone === 'ok' ? s.ok : s.err}>{msg.text}</div>}
+
+      <div style={{ ...s.grid2, marginTop: 8 }}>
+        <button style={s.btnGhost} disabled={busy} onClick={onDone}>Tutup</button>
+        <button style={{ ...s.btnGhost, borderColor: C.neo, color: C.neo, opacity: busy || !canSubmit ? 0.5 : 1 }}
+                disabled={busy || !canSubmit} onClick={() => void submit()}>
+          {busy ? 'Menyimpan…' : 'Simpan password baru'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -402,6 +469,123 @@ function MasterData() {
           </div>
         ))}
       </div>
+    </>
+  );
+}
+
+/* --------------------------------------------------------- konversi uom */
+
+interface UomConversionRow { id: string; uom: string; factor: number }
+
+function UomConversions() {
+  const [items, setItems] = useState<Item[]>([]);
+  const [itemId, setItemId] = useState('');
+  const [rows, setRows] = useState<UomConversionRow[]>([]);
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [uomInput, setUomInput] = useState('');
+  const [factorInput, setFactorInput] = useState('');
+
+  useEffect(() => {
+    listItems().catch((e) => { setMsg({ tone: 'bad', text: parseDbError(e).message }); return []; }).then(setItems);
+  }, []);
+
+  const item = items.find((i) => i.id === itemId) ?? null;
+
+  const load = useCallback(() => {
+    if (!itemId) { setRows([]); return; }
+    void supabase.from('item_uom_conversions').select('id, uom, factor').eq('item_id', itemId).order('uom')
+      .then(({ data, error }) => {
+        if (error) { setMsg({ tone: 'bad', text: parseDbError(error).message }); return; }
+        setRows((data ?? []) as UomConversionRow[]);
+      });
+  }, [itemId]);
+  useEffect(load, [load]);
+
+  async function remove(id: string) {
+    setBusy(true); setMsg(null);
+    try {
+      const { error } = await supabase.from('item_uom_conversions').delete().eq('id', id);
+      if (error) throw error;
+      load();
+    } catch (e) {
+      setMsg({ tone: 'bad', text: parseDbError(e).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const factorNum = Number(factorInput);
+  const canSubmit = uomInput.trim().length > 0 && factorInput.trim().length > 0 && factorNum > 0;
+
+  async function submit() {
+    if (!itemId) return;
+    setBusy(true); setMsg(null);
+    const code = uomInput.trim().toUpperCase();
+    try {
+      const { error } = await supabase.from('item_uom_conversions')
+        .upsert({ item_id: itemId, uom: code, factor: factorNum }, { onConflict: 'item_id,uom' });
+      if (error) throw error;
+      setUomInput(''); setFactorInput('');
+      setMsg({ tone: 'ok', text: `Konversi ${code} disimpan.` });
+      load();
+    } catch (e) {
+      setMsg({ tone: 'bad', text: parseDbError(e).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div style={{ maxWidth: 480 }}>
+        <label style={s.label} htmlFor="item-pick">Bahan / produk</label>
+        <select id="item-pick" style={s.input} value={itemId} onChange={(e) => setItemId(e.target.value)}>
+          <option value="">— pilih —</option>
+          {items.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.name} ({i.base_uom})</option>)}
+        </select>
+      </div>
+
+      {!itemId && <div style={s.empty}>Pilih bahan/produk dulu utk melihat & mengatur konversi satuannya.</div>}
+
+      {itemId && item && (
+        <>
+          {msg && <div style={msg.tone === 'ok' ? s.ok : s.err}>{msg.text}</div>}
+
+          <div style={s.secHead}>{rows.length} konversi satuan</div>
+          {rows.length === 0 && <div style={s.empty}>Belum ada konversi untuk bahan ini.</div>}
+          <div style={s.cardGrid}>
+            {rows.map((r) => (
+              <div key={r.id} style={{ ...s.card, ...s.rowBetween, marginBottom: 0 }}>
+                <div>
+                  <div style={s.code}>{r.uom}</div>
+                  <div style={s.meta}>1 {r.uom} = {r.factor} {item.base_uom}</div>
+                </div>
+                <button style={s.btnGhost} disabled={busy} onClick={() => void remove(r.id)}>Hapus</button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ ...s.card, maxWidth: 480, marginTop: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Tambah konversi</div>
+            <div style={s.grid2}>
+              <div>
+                <label style={s.label} htmlFor="uom-code">Satuan (mis. DRUM, DUS)</label>
+                <input id="uom-code" style={s.input} value={uomInput} onChange={(e) => setUomInput(e.target.value)} />
+              </div>
+              <div>
+                <label style={s.label} htmlFor="uom-factor">1 satuan = ? {item.base_uom}</label>
+                <input id="uom-factor" style={s.input} type="number" value={factorInput}
+                       onChange={(e) => setFactorInput(e.target.value)} />
+              </div>
+            </div>
+            <button style={{ ...s.btn, opacity: busy || !canSubmit ? 0.5 : 1 }} disabled={busy || !canSubmit}
+                    onClick={() => void submit()}>
+              {busy ? 'Menyimpan…' : 'Simpan konversi'}
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

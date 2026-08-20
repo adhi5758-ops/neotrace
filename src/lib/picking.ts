@@ -21,6 +21,7 @@ export interface PickList {
   status: PickStatus;
   started_at: string | null;
   completed_at: string | null;
+  packed_at: string | null;
   created_at: string;
   production_batches: { batch_no: string; target_qty: number; items: { name: string } | null } | null;
   delivery_orders: { doc_no: string; partners: { name: string } | null } | null;
@@ -48,7 +49,7 @@ export interface PickLine {
 export async function listPickLists(onlyOpen = true): Promise<PickList[]> {
   let q = supabase
     .from('pick_lists')
-    .select(`id, doc_no, source_type, batch_id, do_id, staging_location_id, assigned_to, status, started_at, completed_at, created_at,
+    .select(`id, doc_no, source_type, batch_id, do_id, staging_location_id, assigned_to, status, started_at, completed_at, packed_at, created_at,
       production_batches(batch_no, target_qty, items(name)),
       delivery_orders(doc_no, partners!delivery_orders_customer_id_fkey(name))`)
     .order('created_at', { ascending: false });
@@ -56,6 +57,26 @@ export async function listPickLists(onlyOpen = true): Promise<PickList[]> {
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as unknown as PickList[];
+}
+
+/**
+ * Cari pick list milik satu DO — baik yang diterbitkan langsung (do_id di
+ * pick_lists sendiri) maupun lewat gelombang bulk picking (dihubungkan lewat
+ * pick_list_orders, karena satu pick list bulk melayani beberapa DO sekaligus
+ * jadi tidak bisa punya satu do_id tunggal).
+ */
+export async function pickListForDo(doId: string): Promise<PickList | null> {
+  const direct = await listPickLists(false);
+  const single = direct.find((p) => p.do_id === doId && p.status !== 'CANCELLED');
+  if (single) return single;
+
+  const { data: link, error } = await supabase
+    .from('pick_list_orders')
+    .select('pick_list_id')
+    .eq('do_id', doId);
+  if (error) throw error;
+  const pickIds = new Set((link ?? []).map((l) => l.pick_list_id as string));
+  return direct.find((p) => pickIds.has(p.id) && p.status !== 'CANCELLED') ?? null;
 }
 
 export async function openPickCount(): Promise<number> {

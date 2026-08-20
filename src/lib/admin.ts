@@ -98,3 +98,22 @@ export async function createUser(input: NewUserInput): Promise<{ id: string; ema
   if (data?.error) throw new Error(data.error);
   return data as { id: string; email: string };
 }
+
+/**
+ * Reset password pengguna lain lewat edge function `admin-reset-password` —
+ * sama seperti createUser, auth.admin.updateUserById() butuh service role
+ * key yang tidak boleh ada di klien. Beda dari ganti password sendiri
+ * (Account.tsx): di sini admin langsung menetapkan password baru tanpa
+ * perlu tahu/memasukkan password lama pengguna itu.
+ */
+export async function resetUserPassword(userId: string, newPassword: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('admin-reset-password', {
+    body: { userId, newPassword },
+  });
+  if (error) {
+    const context = (error as { context?: Response }).context;
+    const detail = context ? ((await context.json().catch(() => null)) as { error?: string } | null)?.error : undefined;
+    throw new Error(detail ?? error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+}
